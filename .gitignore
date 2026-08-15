@@ -1,0 +1,6 @@
+*.swp
+lock.json
+element-source
+build
+_repos
+_corral

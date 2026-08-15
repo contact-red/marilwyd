@@ -1,0 +1,17 @@
+{
+  "packages": [],
+  "deps": [
+    {
+      "locator": "github.com/ponylang/hobby.git",
+      "version": "0.10.0"
+    }
+  ],
+  "info": {
+    "description": "",
+    "homepage": "",
+    "license": "",
+    "documentation_url": "",
+    "version": "",
+    "name": ""
+  }
+}
