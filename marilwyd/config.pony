@@ -14,6 +14,7 @@ class val Config
   let credentials: Credentials
   let bind_host: String
   let bind_port: String
+  let log_requests: Bool
 
   new val _create(
     homeserver': Homeserver,
@@ -21,7 +22,8 @@ class val Config
     bundles_root': FilePath,
     credentials': Credentials,
     bind_host': String,
-    bind_port': String)
+    bind_port': String,
+    log_requests': Bool)
   =>
     homeserver = homeserver'
     asset_root = asset_root'
@@ -29,6 +31,7 @@ class val Config
     credentials = credentials'
     bind_host = bind_host'
     bind_port = bind_port'
+    log_requests = log_requests'
 
 class val StartupError
   """
@@ -104,6 +107,11 @@ primitive Configure
                 "bind-host",
                 "Address to listen on"
                 where default' = "127.0.0.1")
+              OptionSpec.bool(
+                "log-requests",
+                "Print every request and response to stdout. For debugging;"
+                  + " logs the path and never the query string."
+                where default' = false)
               OptionSpec.i64(
                 "bind-port",
                 "Port to listen on. Default: the port in --server-name, or"
@@ -187,7 +195,8 @@ primitive Configure
         bundles,
         credentials
         where bind_host' = cmd.option("bind-host").string(),
-              bind_port' = bind_port)
+              bind_port' = bind_port,
+              log_requests' = cmd.option("log-requests").bool())
     | let e: StartupError => e
     end
 
