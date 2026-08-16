@@ -82,7 +82,31 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/account/whoami",
         _Whoami(sessions))
+      .> get("/_matrix/client/v3/sync", _Sync(sessions))
+      // Element asks for `/pushrules/`. hobby strips a trailing slash at
+      // both registration and lookup, so the two spellings are one route
+      // and only one may be registered — a second would silently replace
+      // the first rather than fail to build.
+      .> get(
+        "/_matrix/client/v3/pushrules",
+        _AuthedJSON(sessions, PushRules()))
+      .> post(
+        "/_matrix/client/v3/user/:userId/filter",
+        _AuthedJSON(sessions, FilterCreated()))
+      .> get(
+        "/_matrix/client/v3/user/:userId/filter/:filterId",
+        _AuthedJSON(sessions, EmptyFilter()))
+
       .> get("/_matrix/*endpoint", unrecognized)
+      // The catch-all has to answer every method marilwyd might be sent,
+      // not just GET. A method with no row at all is hobby's business, and
+      // hobby answers it with a plain-text `Method Not Allowed` carrying no
+      // `errcode` — the exact failure `UnrecognizedRequest` exists to
+      // prevent. Element reaches this: it sends `POST .../keys/query` and
+      // `PUT .../account_data/...` on every session.
+      .> post("/_matrix/*endpoint", unrecognized)
+      .> put("/_matrix/*endpoint", unrecognized)
+      .> delete("/_matrix/*endpoint", unrecognized)
     ).build()
 
 primitive _JSONHeaders

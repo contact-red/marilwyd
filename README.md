@@ -5,13 +5,22 @@ web client — one origin, one process.
 
 ## Status
 
-A skeleton, but a working one: Element loads, a local user signs in, and the
-token that comes back can be spent. Six Matrix endpoints, listed below.
+A skeleton, but a working one: Element loads, a local user signs in, the
+token that comes back can be spent, and the client settles into a real sync
+loop instead of retrying. Ten Matrix endpoints, listed below.
 
 Accounts come from a file of password hashes — there is no registration
-endpoint. Sessions live in memory, so a restart ends all of them. The token
-is only good for `whoami` so far; everything else Element asks for answers
-`M_UNRECOGNIZED`.
+endpoint. Sessions live in memory, so a restart ends all of them. Everything
+Element asks for beyond the table below answers `M_UNRECOGNIZED`.
+
+**Element does not become usable yet, and `/sync` is not what is missing.**
+It clears its "Syncing…" screen only once a first sync *and* a cross-signing
+key query have both completed. marilwyd implements no crypto endpoints, so
+`POST /_matrix/client/v3/keys/query` answers `M_UNRECOGNIZED`, matrix-js-sdk
+retries it forever, and the screen stays. Underneath it the sync loop is
+healthy — measured at one request per 25 seconds against Element 1.12.25,
+where before this the client re-asked several times a second. Crypto is the
+next piece of work; see `docs/next-increment.md`.
 
 Out of scope: the Application Service API, permanently — IRC and Discord
 bridging will be built natively instead. Federation, for now.
@@ -153,7 +162,22 @@ public.
 | GET | `/_matrix/client/v3/login` | the password flow |
 | POST | `/_matrix/client/v3/login` | verifies a password, issues a token |
 | GET | `/_matrix/client/v3/account/whoami` | resolves a token |
-| GET | `/_matrix/*` | `M_UNRECOGNIZED` |
+| GET | `/_matrix/client/v3/sync` | always empty; holds up to 25 s |
+| GET | `/_matrix/client/v3/pushrules/` | an empty ruleset |
+| POST | `/_matrix/client/v3/user/:userId/filter` | a constant `filter_id` |
+| GET | `/_matrix/client/v3/user/:userId/filter/:filterId` | an empty filter |
+| GET, POST, PUT, DELETE | `/_matrix/*` | `M_UNRECOGNIZED` |
+
+The catch-all covers four methods rather than just GET. A method with no row
+of its own is answered by the HTTP framework, with a plain-text
+`405 Method Not Allowed` carrying no `errcode` — which matrix-js-sdk cannot
+read, and so retries forever. Element reaches this on every session.
+
+`/sync` holds a request open for as long as the client asked, up to 25
+seconds. Answering an empty sync immediately is legal and catastrophic: the
+client re-asks at once, measured at 36 syncs a second. The cap sits under
+the framework's own 30-second handler timeout, which would otherwise answer
+`504` with no `errcode` and put the client into a permanent reconnect flap.
 
 Sessions live in memory only, so a restart logs everyone out. That is
 deliberate: there is nothing worth persisting until rooms and events exist.

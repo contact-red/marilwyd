@@ -106,6 +106,76 @@ primitive WhoamiSuccess
   fun apply(user_id: String): String =>
     JsonPrinter.print(JsonObject.update("user_id", user_id))
 
+primitive EmptySync
+  """
+  The body of a `/sync` that has nothing to report.
+
+  `next_batch` is a constant because there is no event stream for it to
+  point into. A client sends it back as `since` and marilwyd ignores it.
+  The day events exist is the day this becomes a real stream position —
+  and note that clients keep it in durable storage, so a value minted now
+  comes back after a restart.
+
+  Every other key the specification defines here is optional. Validated
+  against **Element 1.12.25 with no rooms**: it drives its sync loop from
+  this document alone and never enters an error state. Adding
+  `rooms`/`presence`/`account_data` changed nothing, so they are not here.
+  Re-check when the Element version changes, or when there are rooms.
+  """
+  fun apply(): String =>
+    JsonPrinter.print(JsonObject.update("next_batch", "s0"))
+
+primitive PushRules
+  """
+  `GET /_matrix/client/v3/pushrules/`.
+
+  An empty ruleset, with every rule kind present. matrix-js-sdk awaits this
+  inside `SyncApi.sync()` before it will issue a first `/sync`, and retries
+  forever on any errcode but `M_UNKNOWN_TOKEN` — so while this was missing,
+  the sync loop never started and the client re-asked every four seconds.
+
+  The five kinds are listed rather than omitted because the client indexes
+  into them; an absent kind and an empty one are not the same to a rules
+  evaluator.
+  """
+  fun apply(): String =>
+    let kinds = JsonObject
+      .update("content", JsonArray)
+      .update("override", JsonArray)
+      .update("room", JsonArray)
+      .update("sender", JsonArray)
+      .update("underride", JsonArray)
+
+    JsonPrinter.print(JsonObject.update("global", kinds))
+
+primitive FilterCreated
+  """
+  The body of `POST /_matrix/client/v3/user/{userId}/filter`.
+
+  The other endpoint matrix-js-sdk awaits before its first `/sync`. The
+  request body is not read: no filter can change an empty set of events.
+
+  A constant id, and clients store it. `getOrCreateFilter` sends it back
+  on a later load rather than creating another, which is why the matching
+  `GET` exists at all.
+  """
+  fun apply(): String =>
+    JsonPrinter.print(JsonObject.update("filter_id", "0"))
+
+primitive EmptyFilter
+  """
+  The body of `GET /_matrix/client/v3/user/{userId}/filter/{filterId}`.
+
+  An empty filter, returned for every id. matrix-js-sdk rethrows any
+  errcode here other than `M_UNKNOWN` or `M_NOT_FOUND`, so answering a
+  cached id with `M_UNRECOGNIZED` would deadlock a returning client.
+
+  Answering 200 to every id means the `M_NOT_FOUND` a real implementation
+  owes an unknown filter is unreachable from here. That is the trigger for
+  giving filters storage rather than a constant.
+  """
+  fun apply(): String => JsonPrinter.print(JsonObject)
+
 primitive UnknownToken
   """
   The body for a token marilwyd does not recognise.

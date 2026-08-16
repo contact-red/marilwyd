@@ -96,6 +96,10 @@ class \nodoc\ iso _TestUnrecognizedEndpointIsJSON is UnitTest
   The status is 404 whether or not the catch-all is wired: without it the
   request falls through to the static handler and gets a plain-text 404. The
   parse is the test, not the status.
+
+  This is also the no-token case of `_Unrecognized` itself: with no token
+  offered there is nothing to say about one, so the honest answer stays
+  "no such endpoint".
   """
   fun name(): String => "routes/unimplemented _matrix path is M_UNRECOGNIZED"
 

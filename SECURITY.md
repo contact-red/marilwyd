@@ -100,6 +100,38 @@ denial-of-service surface.
 
 Memory is not remotely growable this way — a failed login retains nothing.
 
+## Cost of a held sync
+
+`/sync` holds a request open for up to 25 seconds before answering. That
+changes what a connection costs to keep, and it is a deliberate trade.
+
+Before `/sync`, every request was answered in milliseconds, so the number of
+simultaneous connections tracked the arrival rate. Now it tracks the number
+of signed-in clients, continuously: each one keeps a connection, a handler
+actor, a timer and its parsed request alive for the whole wait, and re-opens
+immediately afterwards. A client that goes away mid-wait — a closed tab, a
+sleeping laptop — leaves that state alive until its deadline fires, while the
+socket itself has already been released.
+
+Nothing in marilwyd bounds how many syncs are held at once. The only ceiling
+is the TCP library's own default of 100,000 connections, which marilwyd
+cannot currently change: `hobby.Server` does not expose it (noted in the
+README's dependency section). On the one or two vCPU VPS this project is
+aimed at, that ceiling is not a protection.
+
+This is accepted rather than fixed, for the same reason as the login cost
+above: marilwyd is a personal homeserver, and both surfaces need an
+authenticated session or a rate limiter in front rather than a bound here.
+Holding is also strictly better than the alternatives that were measured —
+answering immediately produces 36 requests a second per client, and letting
+the framework's timeout expire produces a `504` with no `errcode` and a
+permanent client reconnect flap.
+
+The bound to add first, if this becomes real: a count of held syncs, with
+anything above it answered immediately instead of held. Matrix permits a
+server to answer before the requested timeout, so that degrades to the
+immediate-answer behaviour rather than to an error.
+
 ## Deployment shape
 
 marilwyd never terminates TLS: it calls `hobby.Server`, not
