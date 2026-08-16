@@ -66,12 +66,20 @@ build/element: $(ELEMENT_TARBALL)
 
 # marilwyd binds loopback and advertises the same port it listens on, so the
 # generated Element config points back at this process.
+#
+# CREDENTIALS is a file of password hashes; generate entries with
+#   printf '%s' "$$PASSWORD" | build/marilwyd hash-password alice
+CREDENTIALS ?= credentials.json
+
 run: build/marilwyd build/element
-	build/marilwyd --server-name localhost:8008 --asset-root build/element
+	build/marilwyd serve \
+	  --server-name localhost:8008 \
+	  --asset-root build/element \
+	  --credentials $(CREDENTIALS)
 
 clean:
 	rm -rf build/marilwyd build/marilwyd_test build/marilwyd.o \
-	  build/marilwyd_test.o build/test-asset-root
+	  build/marilwyd_test.o build/test-asset-root build/test-credentials*.json
 
 realclean:
 	rm -rf build

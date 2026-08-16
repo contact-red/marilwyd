@@ -1,4 +1,5 @@
 *.swp
+credentials.json
 build
 element-source
 _repos

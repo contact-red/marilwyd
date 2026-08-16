@@ -132,21 +132,21 @@ class \nodoc\ iso _TestLoginFlowsAreServed is UnitTest
         h.assert_true(r.contains("m.login.password"), r)
       } val)
 
-class \nodoc\ iso _TestLoginPostIsForbidden is UnitTest
+class \nodoc\ iso _TestLoginPostRefusesInMatrixVocabulary is UnitTest
   """
-  A 405 here carries no `errcode`, and matrix-js-sdk keys its error path on
-  one — so the client throws instead of rendering a login error.
+  Every refusal from this endpoint has to be a Matrix error. A 405 or a bare
+  status carries no `errcode`, and matrix-js-sdk keys its error path on one,
+  so the client throws instead of showing the person what went wrong.
   """
-  fun name(): String => "routes/POST login is a Matrix error, not a 405"
+  fun name(): String => "routes/POST login refuses in Matrix's vocabulary"
 
   fun apply(h: TestHelper) =>
     _Serve(
       h,
-      "POST /_matrix/client/v3/login HTTP/1.1\r\nHost: example.test\r\n"
-        + "Content-Length: 2\r\nConnection: close\r\n\r\n{}",
+      _Post("/_matrix/client/v3/login", "{}"),
       {(r) =>
-        h.assert_true(r.contains("HTTP/1.1 403 Forbidden\r\n"), r)
-        _AssertErrcode(h, r, "M_FORBIDDEN")
+        h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_PARAM")
       } val)
 
 primitive _AssertErrcode
@@ -200,7 +200,8 @@ class \nodoc\ iso _TestBindPortDerivedFromServerName is UnitTest
   fun name(): String => "bind-port/derives from the port in --server-name"
 
   fun apply(h: TestHelper) =>
-    match _Configure(h, "localhost:8443", _Fixture(h), None)
+    match _Configure(
+      h, "localhost:8443", _Fixture(h), None, _CredentialsFixture(h))
     | let c: Config => h.assert_eq[String]("8443", c.bind_port)
     | let e: StartupError => h.fail(e.message)
     end
@@ -223,7 +224,8 @@ class \nodoc\ iso _TestBindPortExplicitOverrides is UnitTest
     "bind-port/an explicit --bind-port wins, even privileged"
 
   fun apply(h: TestHelper) =>
-    match _Configure(h, "localhost:8448", _Fixture(h), "443")
+    match _Configure(
+      h, "localhost:8448", _Fixture(h), "443", _CredentialsFixture(h))
     | let c: Config => h.assert_eq[String]("443", c.bind_port)
     | let e: StartupError => h.fail(e.message)
     end
@@ -233,7 +235,8 @@ primitive _Configure
     h: TestHelper,
     server_name: String,
     asset_root: String,
-    bind_port: (String | None))
+    bind_port: (String | None),
+    credentials: String = "build/test-credentials.json")
     : (Config | StartupError)
   =>
     """
@@ -243,17 +246,20 @@ primitive _Configure
     let args =
       recover val
         let a =
-          [ "marilwyd"
+          [ "marilwyd"; "serve"
             "--server-name"; server_name
-            "--asset-root"; asset_root ]
+            "--asset-root"; asset_root
+            "--credentials"; credentials ]
         match bind_port
         | let p: String => a .> push("--bind-port") .> push(p)
         end
         a
       end
 
-    match Configure(args, FileAuth(h.env.root))
+    match \exhaustive\ Configure(args, FileAuth(h.env.root))
     | let c: Config => c
     | let e: StartupError => e
     | let hr: HelpRequested => StartupError("help", "unexpected help request")
+    | let hp: HashPasswordRequested =>
+      StartupError("hash-password", "unexpected hash-password request")
     end
