@@ -1,0 +1,32 @@
+{
+  "locks": [
+    {
+      "locator": "github.com/ponylang/lori.git",
+      "revision": "0.18.1"
+    },
+    {
+      "locator": ".",
+      "revision": "main"
+    },
+    {
+      "locator": "github.com/ponylang/logger.git",
+      "revision": "1.0.1"
+    },
+    {
+      "locator": "github.com/ponylang/stallion.git",
+      "revision": "0.9.0"
+    },
+    {
+      "locator": "github.com/ponylang/ssl.git",
+      "revision": "4.0.0"
+    },
+    {
+      "locator": "github.com/ponylang/hobby.git",
+      "revision": "0.10.0"
+    },
+    {
+      "locator": "github.com/ponylang/uri.git",
+      "revision": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+# marilwyd
+
+A very small Matrix homeserver, in Pony, that also delivers its own Element
+web client — one origin, one process.
+
+## Status
+
+A skeleton. It serves Element and answers three Matrix endpoints — enough for
+the client to load, validate the server, and render a login form that
+legitimately refuses every credential, because marilwyd has no accounts yet.
+
+Out of scope: the Application Service API, permanently — IRC and Discord
+bridging will be built natively instead. Federation, for now.
+
+## Building
+
+Requires [corral](https://github.com/ponylang/corral), a C SSL library (a
+transitive requirement of `ssl`, via `stallion`), and a ponyc **newer than
+0.68.0**.
+
+That version floor is not arbitrary. `hobby.ServeFiles` keeps requests inside
+`--asset-root` via `FilePath.from`, whose containment check landed after
+0.68.0. Built against 0.68.0 or earlier, a request for
+`/element/../<sibling>` escapes the asset root whenever a sibling directory's
+name extends its own.
+
+```
+corral fetch
+make
+make test
+```
+
+`make run` fetches and unpacks Element, then starts marilwyd on
+`http://localhost:8008`. The Element tarball is verified against a recorded
+SHA-256 and unpacked atomically, so an interrupted build cannot leave a
+partial tree that looks up to date.
+
+## Running
+
+```
+marilwyd --server-name localhost:8008 --asset-root build/element
+```
+
+| Flag | Required | Default |
+|---|---|---|
+| `--server-name` | yes | — |
+| `--asset-root` | yes | — |
+| `--scheme` | no | `http` |
+| `--bind-host` | no | `127.0.0.1` |
+| `--bind-port` | no | the port in `--server-name`, else 8008 |
+
+`--server-name` is the only identity input. The advertised `base_url` is
+computed from it, so Element cannot be handed an address for a different
+server.
+
+`--bind-port` defaults to the port inside `--server-name`, so the common case
+repeats nothing. They stay separable because a reverse-proxied deployment
+needs them to differ — and nothing at startup can check that they agree, so
+marilwyd prints both:
+
+```
+marilwyd: clients are told to use http://localhost:8008
+marilwyd: listening on 127.0.0.1:8008
+```
+
+If those two disagree and nothing is proxying between them, the browser will
+load Element and every Matrix call will fail as cross-origin.
+
+A port below 1024 *derived* from `--server-name` is refused, since
+`--server-name contact.red:443` is legal Matrix and would otherwise turn an
+identity flag into a privileged bind. An explicit `--bind-port 443` is
+honoured.
+
+## Layout
+
+```
+marilwyd/         the server
+marilwyd_test/    its tests, a sibling package
+```
+
+They are separate packages because marilwyd is a program: `actor Main` is
+already taken in `marilwyd/`. Private types are therefore invisible to the
+tests, which is a real cost — anything carrying a rule a test must check is
+public.
+
+## Routes
+
+| Method | Path | |
+|---|---|---|
+| GET | `/` | redirects to `/element/index.html` |
+| GET | `/element` | same |
+| GET | `/element/config.json` | generated from `--server-name` |
+| GET | `/element/config.<host>.json` | Element probes this first |
+| GET | `/element/bundles/*` | content-hashed; `immutable` |
+| GET | `/element/*` | the Element tree; `no-cache` |
+| GET | `/_matrix` | `M_UNRECOGNIZED` |
+| GET | `/_matrix/client/versions` | `["v1.1"]` |
+| GET | `/_matrix/client/v3/login` | the password flow |
+| POST | `/_matrix/client/v3/login` | `M_FORBIDDEN` |
+| GET | `/_matrix/*` | `M_UNRECOGNIZED` |
+
+Element is mounted under `/element/` rather than at the origin root. Its
+release tarball ships `apple-app-site-association` and
+`.well-known/assetlinks.json`, which delegate universal-link handling and iOS
+keychain credential sharing for the serving domain to Element's published
+mobile apps. Serving them from a homeserver's own domain grants that
+authority; serving Element from a subpath does not, because neither platform
+looks for those files outside the origin root. It also leaves `/` free for
+marilwyd.
+
+Three routes are marked `hobby#1` in the source. hobby's router does not
+consult a node's wildcard entries once the request's path segments are
+exhausted, so a wildcard mount cannot answer its own mount point. They delete
+together when that is fixed upstream — except `/`, which stays as the
+namespace boundary.
+
+## Known upstream issues
+
+Found while building this, and deliberately not worked around here:
+
+- **ponyc** — `cli` cannot report whether an option was supplied or defaulted,
+  which is why `--bind-port` needs a sentinel to stay overridable; its
+  environment-variable fallback cannot reach a kebab-case option name at all.
+  (`FilePath.from`'s containment check is fixed, after 0.68.0. Symlinks are
+  still followed, by design — see [SECURITY.md](SECURITY.md).)
+- **hobby** — a wildcard mount cannot answer its own mount point;
+  `ServeFiles` requires the wildcard to be named `filepath` or it returns 500
+  at request time; `listen_failed` reports one constant string for every bind
+  failure; `listening` reports a resolved address rather than the bind host;
+  response interceptors are silently inert on streamed responses;
+  `lori.TCPListener`'s connection limit is not reachable through
+  `hobby.Server`.
