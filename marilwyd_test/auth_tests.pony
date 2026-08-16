@@ -275,6 +275,47 @@ primitive _PasswordLogin
       + "\"user\":\"" + _TestUser.localpart() + "\"},"
       + "\"password\":\"" + password + "\"}"
 
+// ------------------------------------------- unimplemented matrix endpoints
+class \nodoc\ iso _TestUnimplementedRejectsStaleToken is UnitTest
+  """
+  Element does not call whoami when it restores a session: it calls /sync,
+  /capabilities and /pushrules. If those answered a flat 404, a client
+  holding a token from before a restart would be told the endpoint is
+  missing and never that its session is gone — so it would keep the token,
+  keep showing a signed-in account, and wait for data that cannot come.
+  """
+  fun name(): String =>
+    "matrix/an unimplemented endpoint rejects a stale token"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get(
+        "/_matrix/client/v3/sync",
+        "Authorization: Bearer nosuchtoken\r\n"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_UNKNOWN_TOKEN")
+        h.assert_true(r.contains("soft_logout"), r)
+      } val)
+
+class \nodoc\ iso _TestUnimplementedWithoutTokenIs404 is UnitTest
+  """
+  With no token offered there is nothing to say about one, so the honest
+  answer is still that the endpoint does not exist.
+  """
+  fun name(): String =>
+    "matrix/an unimplemented endpoint without a token is M_UNRECOGNIZED"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/_matrix/client/v3/sync"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 404 Not Found\r\n"), r)
+        _AssertErrcode(h, r, "M_UNRECOGNIZED")
+      } val)
+
 // ------------------------------------------------------------------ whoami
 class \nodoc\ iso _TestWhoamiWithoutTokenIsUnauthorized is UnitTest
   fun name(): String => "whoami/no token is M_MISSING_TOKEN"

@@ -16,19 +16,35 @@ primitive Routes
   own vocabulary — `/`, `/element` and `/_matrix` — and nowhere else.
   `/element/bundles` also 404s plain-text, and no client asks for it.
   """
-  fun apply(config: Config, sessions: SessionRegistry tag)
+  fun apply(
+    config: Config,
+    sessions: SessionRegistry tag,
+    log: (OutStream tag | None) = None)
     : hobby.BuildResult
   =>
     """
     Build the route table, or report the configuration error that stops it.
+
+    Pass an `OutStream` to log every request as it arrives and every
+    response as it leaves.
     """
     let hs = config.homeserver
     let element_config = _ServeJSON(ElementConfig(hs))
-    let unrecognized =
-      _ServeJSON(UnrecognizedRequest(), stallion.StatusNotFound)
+    // Checks any token it is given before answering, so a client holding a
+    // session from before a restart is told so rather than being told the
+    // endpoint is missing.
+    let unrecognized = _Unrecognized(sessions)
     let to_element = _Redirect("/element/index.html")
 
-    (hobby.Application
+    let app = hobby.Application
+
+    match log
+    | let out: OutStream tag =>
+      app.add_request_interceptor(_LogRequest(out))
+      app.add_response_interceptor(_LogResponse(out))
+    end
+
+    (app
       // The origin root is marilwyd's, not Element's. Mounting Element here
       // would serve its `apple-app-site-association` and
       // `.well-known/assetlinks.json`, which delegate universal-link handling

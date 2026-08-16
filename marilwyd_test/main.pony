@@ -53,6 +53,8 @@ actor Main is TestList
     test(_TestCredentialsRejectWeakIterations)
     test(_TestCredentialsRejectNarrowingIterations)
     test(_TestCredentialsRejectBadLocalpart)
+    test(_TestUnimplementedRejectsStaleToken)
+    test(_TestUnimplementedWithoutTokenIs404)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost

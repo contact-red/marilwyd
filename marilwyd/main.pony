@@ -35,7 +35,9 @@ actor Main is hobby.ServerNotify
     env.out.print(
       "marilwyd: clients are told to use " + config.homeserver.base_url())
 
-    match \exhaustive\ Routes(config, SessionRegistry)
+    let log = if config.log_requests then env.out else None end
+
+    match \exhaustive\ Routes(config, SessionRegistry, log)
     | let built: hobby.BuiltApplication =>
       hobby.Server(
         lori.TCPListenAuth(env.root),
