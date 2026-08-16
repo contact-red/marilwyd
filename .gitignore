@@ -1,6 +1,5 @@
 *.swp
-lock.json
-element-source
 build
+element-source
 _repos
 _corral
