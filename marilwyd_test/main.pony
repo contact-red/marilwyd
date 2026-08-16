@@ -7,6 +7,11 @@ use lori = "lori"
 
 actor Main is TestList
   new create(env: Env) =>
+    // Written once, here, rather than by each test that needs them.
+    // PonyTest runs tests concurrently and they share these paths, so a
+    // test that wrote its own fixture would truncate a file another test
+    // was in the middle of reading.
+    _WriteFixtures(env)
     PonyTest(env, this)
 
   fun tag tests(test: PonyTest) =>
@@ -125,7 +130,7 @@ primitive _Serve
     let root = _Fixture(h)
 
     let config =
-      match Configure(
+      match \exhaustive\ Configure(
         recover val
           [ "marilwyd"; "serve"
             "--server-name"; "example.test"
@@ -143,7 +148,7 @@ primitive _Serve
         return
       end
 
-    match Routes(config, SessionRegistry)
+    match \exhaustive\ Routes(config, SessionRegistry)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =
@@ -170,19 +175,9 @@ primitive _Fixture
   """
   The smallest directory `_AssetRoot` accepts: `index.html` and `bundles/`.
   """
-  fun apply(h: TestHelper): String =>
-    let dir = FilePath(FileAuth(h.env.root), "build/test-asset-root")
-    dir.mkdir()
-    try
-      let bundles = FilePath.from(dir, "bundles")?
-      bundles.mkdir()
-      _write(FilePath.from(dir, "index.html")?, "<html>fixture</html>")
-      _write(FilePath.from(bundles, "app.js")?, "// fixture")
-    end
-    dir.path
+  fun path(): String => "build/test-asset-root"
 
-  fun _write(path: FilePath, body: String) =>
-    File(path) .> set_length(0) .> write(body) .> dispose()
+  fun apply(h: TestHelper): String => path()
 
 primitive _Get
   """
@@ -213,12 +208,30 @@ primitive _TestUser
 
 primitive _CredentialsFixture
   """
-  A credentials file holding one user, hashed with the real primitives.
+  The credentials file every server-booting test uses.
   """
-  fun apply(h: TestHelper): String =>
-    let path = FilePath(FileAuth(h.env.root), "build/test-credentials.json")
+  fun path(): String => "build/test-credentials.json"
+
+  fun apply(h: TestHelper): String => path()
+
+primitive _WriteFixtures
+  """
+  Build every fixture the suite reads, once, before any test starts.
+  """
+  fun apply(env: Env) =>
+    let auth = FileAuth(env.root)
+
+    let dir = FilePath(auth, _Fixture.path())
+    dir.mkdir()
     try
-      let salt = RandBytes(16)?
+      let bundles = FilePath.from(dir, "bundles")?
+      bundles.mkdir()
+      _write(FilePath.from(dir, "index.html")?, "<html>fixture</html>")
+      _write(FilePath.from(bundles, "app.js")?, "// fixture")
+    end
+
+    try
+      let salt = _Hex.bytes(Pbkdf2SaltLength())
       let hash =
         Pbkdf2Sha256(
           _TestUser.password(),
@@ -231,11 +244,14 @@ primitive _CredentialsFixture
           + "\"iterations\":" + _TestUser.iterations().string() + ","
           + "\"salt\":\"" + ToHexString(salt) + "\","
           + "\"hash\":\"" + ToHexString(hash) + "\"}]}"
-      File(path) .> set_length(0) .> write(body) .> dispose()
+      let path = FilePath(auth, _CredentialsFixture.path())
+      _write(path, body)
       // `_ReadCredentialsFile` refuses a file others can read.
       let owner_only: FileMode ref = FileMode
       owner_only.group_read = false
       owner_only.any_read = false
       path.chmod(owner_only)
     end
-    path.path
+
+  fun _write(path: FilePath, body: String) =>
+    File(path) .> set_length(0) .> write(body) .> dispose()

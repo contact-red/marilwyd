@@ -46,7 +46,7 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
     let body = ctx.body
     _handler = hobby.RequestHandler(consume ctx)
 
-    match _ParseLogin(body)
+    match \exhaustive\ _ParseLogin(body)
     | let r: _LoginRequest =>
       match credentials(r.localpart)
       | let c: Credential if c.verify(r.password) =>

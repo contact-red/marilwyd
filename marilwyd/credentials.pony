@@ -151,7 +151,7 @@ primitive ReadCredentials
     let users = recover trn Map[String, Credential] end
     for (i, entry) in entries.pairs() do
       let where': String = path.path + " users[" + i.string() + "]"
-      match _Entry(entry, where')
+      match \exhaustive\ _Entry(entry, where')
       | let c: Credential =>
         if users.contains(c.localpart) then
           return StartupError(
@@ -186,7 +186,7 @@ primitive _Entry
       end
 
     let localpart =
-      match _Field(o, "localpart", where')
+      match \exhaustive\ _Field(o, "localpart", where')
       | let s: String => s
       | let e: StartupError => return e
       end
@@ -197,7 +197,7 @@ primitive _Entry
     end
 
     let algorithm =
-      match _Field(o, "algorithm", where')
+      match \exhaustive\ _Field(o, "algorithm", where')
       | let s: String => s
       | let e: StartupError => return e
       end
@@ -232,7 +232,7 @@ primitive _Entry
       end
 
     let salt =
-      match _HexField(o, "salt", where')
+      match \exhaustive\ _HexField(o, "salt", where')
       | let b: Array[U8] val => b
       | let e: StartupError => return e
       end
@@ -245,7 +245,7 @@ primitive _Entry
     end
 
     let hash =
-      match _HexField(o, "hash", where')
+      match \exhaustive\ _HexField(o, "hash", where')
       | let b: Array[U8] val => b
       | let e: StartupError => return e
       end
@@ -282,7 +282,7 @@ primitive _HexField
   fun apply(o: JsonObject, name: String, where': String)
     : (Array[U8] val | StartupError)
   =>
-    match _Field(o, name, where')
+    match \exhaustive\ _Field(o, name, where')
     | let s: String =>
       match _FromHex(s)
       | let b: Array[U8] val => b

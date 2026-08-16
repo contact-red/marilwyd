@@ -1,0 +1,24 @@
+name: main
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: main-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  packages: read
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/ponylang/shared-docker-ci-standard-builder-with-libressl-4.2.1:release
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - name: Test
+        run: make test ssl=libressl config=debug

@@ -28,7 +28,7 @@ That version floor is not arbitrary. `hobby.ServeFiles` keeps requests inside
 `/element/../<sibling>` escapes the asset root whenever a sibling directory's
 name extends its own.
 
-```
+```shell
 corral fetch
 make
 make test
@@ -49,7 +49,7 @@ costs a PBKDF2 search.
 Generate an entry, reading the password from stdin so it never reaches your
 shell history or the process table:
 
-```
+```shell
 read -rs PASSWORD
 printf '%s' "$PASSWORD" | marilwyd hash-password alice
 ```
@@ -88,7 +88,7 @@ is served to anyone who can reach the socket.
 
 ## Running
 
-```
+```shell
 marilwyd serve \
   --server-name localhost:8008 \
   --asset-root build/element \
@@ -113,7 +113,7 @@ repeats nothing. They stay separable because a reverse-proxied deployment
 needs them to differ — and nothing at startup can check that they agree, so
 marilwyd prints both:
 
-```
+```quote
 marilwyd: clients are told to use http://localhost:8008
 marilwyd: listening on 127.0.0.1:8008
 ```
@@ -128,7 +128,7 @@ honoured.
 
 ## Layout
 
-```
+```quote
 marilwyd/         the server
 marilwyd_test/    its tests, a sibling package
 ```
