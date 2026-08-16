@@ -21,11 +21,6 @@ primitive Routes
   =>
     """
     Build the route table, or report the configuration error that stops it.
-
-    `sessions` is a concrete actor rather than an interface marilwyd owns.
-    The tests boot the real registry over a real socket, so a double buys
-    nothing yet; the trigger for extracting an interface is the first test
-    that needs a failure this registry cannot be made to produce.
     """
     let hs = config.homeserver
     let element_config = _ServeJSON(ElementConfig(hs))
@@ -76,7 +71,7 @@ primitive Routes
 
 primitive _JSONHeaders
   """
-  The headers every JSON response marilwyd generates carries.
+  The headers on every JSON response marilwyd generates.
 
   `no-store` because these bodies are derived from configuration or from a
   session; a copy cached in a browser would outlive either.
@@ -86,6 +81,9 @@ primitive _JSONHeaders
       stallion.Headers
         .> set("Content-Type", "application/json")
         .> set("Cache-Control", "no-store")
+        // A login error echoes back a string the caller chose, and Element
+        // is served from this same origin.
+        .> set("X-Content-Type-Options", "nosniff")
     end
 
 class val _ServeJSON

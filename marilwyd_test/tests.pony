@@ -132,7 +132,7 @@ class \nodoc\ iso _TestLoginFlowsAreServed is UnitTest
         h.assert_true(r.contains("m.login.password"), r)
       } val)
 
-class \nodoc\ iso _TestLoginPostIsForbidden is UnitTest
+class \nodoc\ iso _TestLoginPostRefusesInMatrixVocabulary is UnitTest
   """
   Every refusal from this endpoint has to be a Matrix error. A 405 or a bare
   status carries no `errcode`, and matrix-js-sdk keys its error path on one,

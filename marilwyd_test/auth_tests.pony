@@ -1,3 +1,4 @@
+use "collections"
 use "pony_test"
 use "files"
 use "json"
@@ -57,6 +58,98 @@ class \nodoc\ iso _TestCredentialsRejectUnknownAlgorithm is UnitTest
         + "\"iterations\":1,\"salt\":\"00\",\"hash\":\"00\"}]}",
       "credentials-algorithm")
 
+class \nodoc\ iso _TestCredentialsRejectEmptyHash is UnitTest
+  """
+  An empty hash made `verify` derive nothing and compare nothing, so every
+  password matched. The stored value must never choose the width of its own
+  comparison.
+  """
+  fun name(): String => "credentials/an empty hash is refused"
+
+  fun apply(h: TestHelper) =>
+    _AssertCredentialsRefused(
+      h,
+      "empty-hash",
+      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
+        + "\"iterations\":600000,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
+        + "\",\"hash\":\"\"}]}",
+      "credentials-hash-length")
+
+class \nodoc\ iso _TestCredentialsRejectTruncatedHash is UnitTest
+  """
+  A short hash is the likely form of the same defect: a truncated paste used
+  to become a prefix check rather than a refusal.
+  """
+  fun name(): String => "credentials/a truncated hash is refused"
+
+  fun apply(h: TestHelper) =>
+    _AssertCredentialsRefused(
+      h,
+      "short-hash",
+      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
+        + "\"iterations\":600000,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
+        + "\",\"hash\":\"" + _Hex(4) + "\"}]}",
+      "credentials-hash-length")
+
+class \nodoc\ iso _TestCredentialsRejectShortSalt is UnitTest
+  fun name(): String => "credentials/a short salt is refused"
+
+  fun apply(h: TestHelper) =>
+    _AssertCredentialsRefused(
+      h,
+      "short-salt",
+      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
+        + "\"iterations\":600000,\"salt\":\"00\",\"hash\":\""
+        + _Hex(Pbkdf2KeyLength()) + "\"}]}",
+      "credentials-salt-length")
+
+class \nodoc\ iso _TestCredentialsRejectWeakIterations is UnitTest
+  """
+  An unstretched entry is accepted by every other check in the file.
+  """
+  fun name(): String =>
+    "credentials/an iteration count below the floor is refused"
+
+  fun apply(h: TestHelper) =>
+    _AssertCredentialsRefused(
+      h,
+      "weak-iterations",
+      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
+        + "\"iterations\":1,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
+        + "\",\"hash\":\"" + _Hex(Pbkdf2KeyLength()) + "\"}]}",
+      "credentials-iterations")
+
+class \nodoc\ iso _TestCredentialsRejectNarrowingIterations is UnitTest
+  """
+  `n.u32()` wraps, so a count above 2^32 used to become a small one and
+  quietly unstretch the entry.
+  """
+  fun name(): String =>
+    "credentials/an iteration count that would narrow is refused"
+
+  fun apply(h: TestHelper) =>
+    _AssertCredentialsRefused(
+      h,
+      "narrowing-iterations",
+      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
+        + "\"iterations\":4294968296,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
+        + "\",\"hash\":\"" + _Hex(Pbkdf2KeyLength()) + "\"}]}",
+      "credentials-iterations")
+
+class \nodoc\ iso _TestCredentialsRejectBadLocalpart is UnitTest
+  """
+  A localpart holding a `:` can never be logged into, because the parser
+  stops at the first one; an empty one is not addressable at all.
+  """
+  fun name(): String => "credentials/a localpart outside the grammar is refused"
+
+  fun apply(h: TestHelper) =>
+    _AssertCredentialsRefused(
+      h,
+      "bad-localpart",
+      "{\"users\":[" + _Entry("@bob:elsewhere") + "]}",
+      "credentials-localpart")
+
 class \nodoc\ iso _TestCredentialsRejectEmptyUserList is UnitTest
   """
   A server nobody can log into is a configuration mistake, not a valid state.
@@ -71,9 +164,27 @@ class \nodoc\ iso _TestCredentialsRejectEmptyUserList is UnitTest
       "credentials-empty")
 
 primitive _Entry
+  """
+  A structurally valid entry. Every value is one `_Entry` accepts, so a test
+  using this fails for the reason it names rather than for its fixture.
+  """
   fun apply(localpart: String): String =>
     "{\"localpart\":\"" + localpart + "\",\"algorithm\":\"pbkdf2-sha256\","
-      + "\"iterations\":1,\"salt\":\"00\",\"hash\":\"00\"}"
+      + "\"iterations\":600000,"
+      + "\"salt\":\"" + _Hex(Pbkdf2SaltLength()) + "\","
+      + "\"hash\":\"" + _Hex(Pbkdf2KeyLength()) + "\"}"
+
+primitive _Hex
+  """
+  `n` bytes of hex, for a fixture that needs a well-formed value and does not
+  care which one.
+  """
+  fun apply(n: USize): String =>
+    let s = recover String(n * 2) end
+    for _ in Range(0, n) do
+      s.append("ab")
+    end
+    consume s
 
 primitive _AssertCredentialsRefused
   fun apply(
@@ -88,7 +199,7 @@ primitive _AssertCredentialsRefused
       FilePath(
         FileAuth(h.env.root),
         "build/test-credentials-" + fixture + ".json")
-    File(path) .> write(body) .> dispose()
+    File(path) .> set_length(0) .> write(body) .> dispose()
     match ReadCredentials(path)
     | let c: Credentials => h.fail("accepted " + body)
     | let e: StartupError => h.assert_eq[String](expected_cause, e.cause)

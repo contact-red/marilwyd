@@ -6,8 +6,7 @@ class val AccessToken
 
   Deliberately not `Stringable`, and with no `string()`: a token cannot reach
   a log line, an error message, or a string concatenation by accident,
-  because none of those compile. `reveal` is the one way out, and every call
-  to it is a place a token leaves marilwyd.
+  because none of those compile. `reveal` is the one way out.
 
   Build one with `MakeAccessToken`.
   """
@@ -18,10 +17,8 @@ class val AccessToken
 
   fun val reveal(): String =>
     """
-    Hand the token to something that must transmit it.
-
-    There should be very few call sites, and each one is a disclosure. Today
-    there is exactly one: the body of a successful login response.
+    Hand the token to something that must transmit it. Every call is a
+    disclosure, which is what makes grepping for this method worth doing.
     """
     _value
 
@@ -44,6 +41,22 @@ primitive MakeAccessToken
     """
     try
       AccessToken._create(ToHexString(RandBytes(32)?))
+    else
+      NoSecureRandom
+    end
+
+primitive MakeDeviceId
+  """
+  Mint a device identifier from the CSPRNG.
+
+  A device id is a public label — it travels in login responses and in the
+  events a client sends — so it is a plain `String`, not an `AccessToken`.
+  Minting one through the token type would put a value that is meant to be
+  printed behind a type that exists to stop values being printed.
+  """
+  fun apply(): (String | NoSecureRandom) =>
+    try
+      ToHexString(RandBytes(5)?)
     else
       NoSecureRandom
     end

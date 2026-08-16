@@ -5,9 +5,13 @@ web client — one origin, one process.
 
 ## Status
 
-A skeleton. It serves Element and answers three Matrix endpoints — enough for
-the client to load, validate the server, and render a login form that
-legitimately refuses every credential, because marilwyd has no accounts yet.
+A skeleton, but a working one: Element loads, a local user signs in, and the
+token that comes back can be spent. Six Matrix endpoints, listed below.
+
+Accounts come from a file of password hashes — there is no registration
+endpoint. Sessions live in memory, so a restart ends all of them. The token
+is only good for `whoami` so far; everything else Element asks for answers
+`M_UNRECOGNIZED`.
 
 Out of scope: the Application Service API, permanently — IRC and Discord
 bridging will be built natively instead. Federation, for now.
@@ -39,7 +43,7 @@ partial tree that looks up to date.
 
 There is no registration endpoint. Accounts are provisioned from a
 credentials file that holds **password hashes, never passwords** — marilwyd
-never sees a plaintext password at rest, and recovering one from an entry
+never writes a plaintext password anywhere, and recovering one from an entry
 costs a PBKDF2 search.
 
 Generate an entry, reading the password from stdin so it never reaches your
@@ -59,15 +63,28 @@ Collect the entries into a file:
       "localpart": "alice",
       "algorithm": "pbkdf2-sha256",
       "iterations": 600000,
-      "salt": "…",
-      "hash": "…"
+      "salt": "<32 hex characters from hash-password>",
+      "hash": "<64 hex characters from hash-password>"
     }
   ]
 }
 ```
 
-Each entry carries its own parameters, so raising the iteration count applies
-to new entries without invalidating existing ones.
+Each entry carries its own iteration count, so raising the figure applies to
+new entries without invalidating existing ones. The salt and hash lengths are
+fixed and checked at startup: a truncated paste is refused rather than
+quietly weakening the credential.
+
+Adding a second user means editing the file — `hash-password` prints one
+entry, it does not append. The `users` array holds them all:
+
+```json
+{ "users": [ { "localpart": "alice", … }, { "localpart": "bob", … } ] }
+```
+
+Keep the file readable only by its owner; marilwyd refuses to start
+otherwise, and refuses a file placed inside `--asset-root`, where everything
+is served to anyone who can reach the socket.
 
 ## Running
 
@@ -141,9 +158,13 @@ public.
 Sessions live in memory only, so a restart logs everyone out. That is
 deliberate: there is nothing worth persisting until rooms and events exist.
 
-An unknown user and a wrong password produce byte-identical answers, so the
-login endpoint cannot be used to enumerate accounts. Password and token
-comparisons are constant-time.
+An unknown user and a wrong password produce byte-identical answers **and
+take the same time** — the unknown-user path derives against a decoy rather
+than returning early, so the endpoint cannot be used to enumerate accounts by
+either route. Password and token comparisons are constant-time.
+
+That means every login attempt, valid or not, costs a full key derivation.
+See [SECURITY.md](SECURITY.md).
 
 Element is mounted under `/element/` rather than at the origin root. Its
 release tarball ships `apple-app-site-association` and

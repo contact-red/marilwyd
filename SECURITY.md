@@ -36,28 +36,69 @@ The credentials file holds PBKDF2-HMAC-SHA256 hashes, never passwords.
 marilwyd has no code path that writes a plaintext password anywhere, and
 `hash-password` reads one from stdin rather than from an argument so it does
 not reach the process table or shell history. Still, treat the file as
-sensitive: it is the offline-attack surface for every account, and a weak
-password behind it is only as strong as the iteration count in its entry.
+sensitive: it is the offline-attack surface for every account. A weak password
+behind it is recoverable, and the iteration count in its entry sets only the
+cost of each guess.
 
 `AccessToken` is deliberately not `Stringable` and has no `string()`. A token
 cannot reach a log line, an error message, or a string concatenation by
-accident, because none of those compile. `reveal` is the single deliberate
-exit and has exactly one call site: the body of a successful login response.
+accident, because none of those compile — verified from outside the package.
+`reveal` is the single deliberate exit, so grepping for it lists every place
+a token leaves marilwyd.
+
+The protection is one-directional. A token arriving from a client is a plain
+`String` from the `Authorization` header until it is compared, and gets none
+of it.
 
 Password and token comparisons both go through `ConstantTimeCompare`, so
 neither leaks where a supplied value first differs from the real one. Token
 resolution is a linear scan for that reason rather than a keyed lookup.
 
-An unknown user and a wrong password produce identical responses, so login
-cannot be used to enumerate accounts.
+An unknown user and a wrong password produce identical responses and take the
+same time: the unknown-user path derives against a fixed decoy rather than
+returning early. Without that, the two differed by the whole cost of the key
+derivation — measured at roughly 400x — and identical bodies would not have
+stopped anyone timing the difference.
 
 Matrix permits `?access_token=` in a query string. marilwyd reads only the
 `Authorization: Bearer` header — a query string reaches logs, proxies and
 browser history far too easily.
 
-**Not yet done:** tokens never expire and there is no logout, so the only way
-to revoke one is to restart. Sessions are in memory, so a restart revokes all
-of them.
+The credentials file is validated for value as well as shape at startup: the
+hash must be exactly the derived-key length, the salt at least 16 bytes, and
+the iteration count at or above a floor. A short hash used to be accepted, and
+`verify` derived to the *stored* length — so a truncated paste became a prefix
+check and an empty hash matched every password.
+
+marilwyd refuses a credentials file that any user but its owner can read, and
+one placed inside `--asset-root`, where every file is served unauthenticated.
+
+## Revocation
+
+Tokens do not expire and there is no logout endpoint. Restarting is the only
+revocation, and it revokes every session at once, because sessions are held in
+memory and nothing else removes one.
+
+Removing a user from the credentials file does not end their session by
+itself — it ends only because the file is read once at startup, so removing
+someone requires the restart that clears every session. Anything that reloads
+credentials without restarting would break that coupling silently.
+
+## Cost of a login attempt
+
+Verifying a password is a single 600,000-iteration PBKDF2 call, which occupies
+one scheduler thread for roughly 380 ms and cannot be preempted — it is one
+FFI call into libcrypto. Nothing bounds how many run at once, and there is no
+rate limit.
+
+An unauthenticated caller can therefore buy ~380 ms of CPU with a ~130-byte
+request, and the decoy derivation above means an unknown username costs the
+same as a known one. Measured on two scheduler threads, eight concurrent
+attempts took an unrelated static request from 1 ms to over a second. On a
+many-core host it is not noticeable; on a one or two vCPU VPS it is a
+denial-of-service surface.
+
+Memory is not remotely growable this way — a failed login retains nothing.
 
 ## Deployment shape
 

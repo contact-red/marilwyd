@@ -37,9 +37,7 @@ actor _WhoamiHandler is (hobby.HandlerReceiver & UserReceiver)
     _respond(stallion.StatusOK, WhoamiSuccess(user_id))
 
   be token_rejected() =>
-    _respond(
-      stallion.StatusUnauthorized,
-      MatrixError("M_UNKNOWN_TOKEN", "Unrecognised access token"))
+    _respond(stallion.StatusUnauthorized, UnknownToken())
 
   fun ref _respond(status: stallion.Status, body: String) =>
     _handler.respond_with_headers(status, _JSONHeaders(), body)
@@ -58,7 +56,13 @@ primitive _BearerToken
   """
   fun apply(request: stallion.Request val): (String | None) =>
     match request.headers.get("authorization")
-    | let h: String if h.at("Bearer ", 0) => h.substring(7)
+    | let h: String if h.size() > 7 =>
+      // RFC 9110 makes the scheme case-insensitive.
+      if h.substring(0, 7).lower() == "bearer " then
+        h.substring(7)
+      else
+        None
+      end
     else
       None
     end

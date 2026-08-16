@@ -22,7 +22,7 @@ actor Main is TestList
     test(_TestUnrecognizedEndpointIsJSON)
     test(_TestMatrixNamespaceRootIsJSON)
     test(_TestLoginFlowsAreServed)
-    test(_TestLoginPostIsForbidden)
+    test(_TestLoginPostRefusesInMatrixVocabulary)
     test(_TestServerNameRejectsURL)
     test(_TestServerNameRejectsBadPort)
     test(_TestBindPortDerivedFromServerName)
@@ -39,6 +39,15 @@ actor Main is TestList
     test(_TestWhoamiWithoutTokenIsUnauthorized)
     test(_TestWhoamiRejectsAnUnknownToken)
     test(_TestTokensAreUnguessable)
+    test(_TestIssuedTokenResolves)
+    test(_TestUnknownTokenDoesNotResolve)
+    test(_TestDeviceIdIsNotTheAccessToken)
+    test(_TestCredentialsRejectEmptyHash)
+    test(_TestCredentialsRejectTruncatedHash)
+    test(_TestCredentialsRejectShortSalt)
+    test(_TestCredentialsRejectWeakIterations)
+    test(_TestCredentialsRejectNarrowingIterations)
+    test(_TestCredentialsRejectBadLocalpart)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
@@ -173,7 +182,7 @@ primitive _Fixture
     dir.path
 
   fun _write(path: FilePath, body: String) =>
-    File(path) .> write(body) .> dispose()
+    File(path) .> set_length(0) .> write(body) .> dispose()
 
 primitive _Get
   """
@@ -197,11 +206,10 @@ primitive _TestUser
 
   fun iterations(): U32 =>
     """
-    Low on purpose. Entries carry their own count, so the fixture can be
-    cheap without the production default being cheap — which is the reason
-    the parameter travels with the entry rather than being compiled in.
+    The floor, not the production figure. Entries carry their own count, so
+    the suite can run at the cheapest count `_Entry` accepts.
     """
-    1000
+    Pbkdf2MinIterations()
 
 primitive _CredentialsFixture
   """
@@ -223,6 +231,11 @@ primitive _CredentialsFixture
           + "\"iterations\":" + _TestUser.iterations().string() + ","
           + "\"salt\":\"" + ToHexString(salt) + "\","
           + "\"hash\":\"" + ToHexString(hash) + "\"}]}"
-      File(path) .> write(body) .> dispose()
+      File(path) .> set_length(0) .> write(body) .> dispose()
+      // `_ReadCredentialsFile` refuses a file others can read.
+      let owner_only: FileMode ref = FileMode
+      owner_only.group_read = false
+      owner_only.any_read = false
+      path.chmod(owner_only)
     end
     path.path

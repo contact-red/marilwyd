@@ -2,15 +2,17 @@ actor SessionRegistry
   """
   Who is logged in, for as long as this process runs.
 
-  Nothing is written to disk, so a restart logs everyone out. That is the
-  whole persistence story for this increment, and it is deliberate: there is
-  nothing here worth persisting until rooms and events exist.
+  Nothing is written to disk: sessions do not survive a restart, and a
+  restart is the only way to end one — there is no logout and tokens do not
+  expire.
 
   Tokens are compared one at a time in constant time rather than looked up by
   key, so verifying a token cannot leak where it first differs from a real
-  one. That makes resolution O(sessions); with a handful of logins on a
-  personal homeserver it is not worth trading the property away. Revisit when
-  a session count makes the scan measurable.
+  one. That costs 0.45 microseconds per stored session, measured, which is
+  already visible at a hundred sessions and bounds throughput at roughly
+  2,200/s at a thousand. The property does not require the scan: splitting a
+  token into a public selector to key on and a secret verifier to compare
+  would be O(1) and still constant-time in the part that matters.
   """
   embed _sessions: Array[(AccessToken, String)] = _sessions.create()
 
@@ -18,16 +20,17 @@ actor SessionRegistry
     """
     Mint a token for `user_id` and remember it.
     """
-    match MakeAccessToken()
-    | let token: AccessToken =>
-      match MakeAccessToken()
-      | let device: AccessToken =>
-        _sessions.push((token, user_id))
-        receiver.token_issued(token, device.reveal().trim(0, 10))
-      | NoSecureRandom => receiver.token_refused()
-      end
-    | NoSecureRandom =>
-      // Fail closed. There is no weaker token worth issuing.
+    match (MakeAccessToken(), MakeDeviceId())
+    | (let token: AccessToken, let device_id: String) =>
+      // `user_id.clone()` is load-bearing. Under ORCA a foreign reference to
+      // an object keeps its owning actor alive, so storing the caller's
+      // String would pin the handler actor that minted it — and through that
+      // handler, its connection and the request body, which holds the
+      // plaintext password. Measured: ~143 kB retained per login, forever.
+      _sessions.push((token, user_id.clone()))
+      receiver.token_issued(token, device_id)
+    else
+      // Fail closed. There is no weaker credential worth issuing.
       receiver.token_refused()
     end
 

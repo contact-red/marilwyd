@@ -83,21 +83,21 @@ primitive LoginSuccess
   """
   The body of a successful `POST /_matrix/client/v3/login`.
 
-  `home_server` is deprecated in the spec but still read by clients in the
-  wild, and costs one field.
+  `home_server` is deprecated in the specification and still read by Element
+  1.12.25, which is the client marilwyd ships.
   """
   fun apply(
     user_id: String,
-    access_token: String,
-    device_id: String,
-    server_name: String)
+    access_token': String,
+    device_id': String,
+    server_name': String)
     : String
   =>
     JsonPrinter.print(JsonObject
       .update("user_id", user_id)
-      .update("access_token", access_token)
-      .update("device_id", device_id)
-      .update("home_server", server_name))
+      .update("access_token", access_token')
+      .update("device_id", device_id')
+      .update("home_server", server_name'))
 
 primitive WhoamiSuccess
   """
@@ -105,3 +105,18 @@ primitive WhoamiSuccess
   """
   fun apply(user_id: String): String =>
     JsonPrinter.print(JsonObject.update("user_id", user_id))
+
+primitive UnknownToken
+  """
+  The body for a token marilwyd does not recognise.
+
+  `soft_logout` tells the client its credentials are still good and only the
+  session is gone, so it offers to sign in again rather than discarding
+  local state. Every marilwyd restart puts every client in exactly that
+  position, because sessions are held in memory.
+  """
+  fun apply(): String =>
+    JsonPrinter.print(JsonObject
+      .update("errcode", "M_UNKNOWN_TOKEN")
+      .update("error", "Unrecognised access token")
+      .update("soft_logout", true))

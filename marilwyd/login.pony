@@ -28,10 +28,9 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
   """
   Verifies a password, then waits for the registry to mint a token.
 
-  Verification runs here rather than inline in the connection actor because
-  PBKDF2 at the configured iteration count is deliberately expensive — that
-  cost is the whole point of a KDF, and it belongs on an actor that is not
-  also reading the socket.
+  Verification is deliberately expensive, so it runs on this actor rather
+  than on the connection: the connection stays free to read, and a pipelined
+  request behind this one is not held up by the derivation.
   """
   embed _handler: hobby.RequestHandler
   let _homeserver: Homeserver
@@ -51,33 +50,43 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
     | let r: _LoginRequest =>
       match credentials(r.localpart)
       | let c: Credential if c.verify(r.password) =>
-        _user_id = "@" + r.localpart + ":" + _homeserver.server_name
+        _user_id = _homeserver.user_id(r.localpart)
         sessions.issue(_user_id, this)
+      | let c: Credential =>
+        _refuse()
       else
-        // One answer for "no such user" and for "wrong password", so a
-        // caller cannot use the response to enumerate accounts.
-        _respond(
-          stallion.StatusForbidden,
-          MatrixError("M_FORBIDDEN", "Invalid username or password"))
+        // An unknown user derives against a decoy before refusing. Without
+        // it the two paths differ by the whole cost of the KDF — measured at
+        // 400x — and the response bodies being identical would not stop
+        // anyone timing the difference to learn which names exist.
+        _Decoy.verify(r.password)
+        _refuse()
       end
     | let e: _LoginRefusal =>
       _respond(e.status, MatrixError(e.errcode, e.message))
     end
 
+  fun ref _refuse() =>
+    """
+    One answer for "no such user" and for "wrong password".
+    """
+    _respond(
+      stallion.StatusForbidden,
+      MatrixError("M_FORBIDDEN", "Invalid username or password"))
+
   be token_issued(token: AccessToken, device_id: String) =>
-    // The one place an access token leaves marilwyd.
     _respond(
       stallion.StatusOK,
       LoginSuccess(
-        _user_id,
-        token.reveal(),
-        device_id,
-        _homeserver.server_name))
+        _user_id
+        where access_token' = token.reveal(),
+              device_id' = device_id,
+              server_name' = _homeserver.server_name))
 
   be token_refused() =>
     _respond(
       stallion.StatusInternalServerError,
-      MatrixError("M_UNKNOWN", NoSecureRandom.string()))
+      MatrixError("M_UNKNOWN", "Could not issue an access token"))
 
   fun ref _respond(status: stallion.Status, body: String) =>
     _handler.respond_with_headers(status, _JSONHeaders(), body)
@@ -119,8 +128,8 @@ primitive _ParseLogin
   Read a Matrix login request.
 
   Accepts both the current shape, where the user sits in an `identifier`
-  object, and the deprecated top-level `user`, because clients in the wild
-  still send the latter.
+  object, and the deprecated top-level `user`, which Element 1.12.25 still
+  sends in some flows.
   """
   fun apply(body: Array[U8] val): (_LoginRequest | _LoginRefusal) =>
     let text = String.from_array(body)

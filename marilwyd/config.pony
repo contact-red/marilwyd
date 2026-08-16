@@ -133,11 +133,24 @@ primitive Configure
       match CommandParser(spec).parse(args)
       | let c: Command => c
       | let h: CommandHelp => return HelpRequested(h.help_string())
-      | let e: SyntaxError => return StartupError("usage", e.string())
+      | let e: SyntaxError =>
+        // marilwyd took its flags directly before `hash-password` existed,
+        // so a command line written against the old shape fails here with a
+        // message about an unknown option and no hint that a subcommand is
+        // now required.
+        return StartupError(
+          "usage",
+          e.string() + "\nmarilwyd takes a subcommand: try 'marilwyd serve"
+            + " --server-name … --asset-root … --credentials …', 'marilwyd"
+            + " hash-password <localpart>', or 'marilwyd --help'.")
       end
 
     if cmd.spec().name() == "hash-password" then
-      return HashPasswordRequested(cmd.arg("localpart").string())
+      let localpart = cmd.arg("localpart").string()
+      match Localpart.check(localpart)
+      | let e: String => return StartupError("localpart", e)
+      end
+      return HashPasswordRequested(localpart)
     end
 
     let hs =
@@ -158,14 +171,14 @@ primitive Configure
       | let e: StartupError => return e
       end
 
-    let credentials =
-      match _ReadCredentialsFile(cmd.option("credentials").string(), auth)
-      | let c: Credentials => c
-      | let e: StartupError => return e
-      end
-
     match _AssetRoot(cmd.option("asset-root").string(), auth)
     | (let root: FilePath, let bundles: FilePath) =>
+      let credentials =
+        match
+          _ReadCredentialsFile(cmd.option("credentials").string(), auth, root)
+        | let c: Credentials => c
+        | let e: StartupError => return e
+        end
       // Named arguments: `bind_host'` and `bind_port'` are adjacent strings
       // in the constructor, and this is the one place they are supplied.
       Config._create(
@@ -179,9 +192,14 @@ primitive Configure
     end
 
 primitive _ReadCredentialsFile
-  fun apply(path: String, auth: FileAuth): (Credentials | StartupError) =>
+  fun apply(path: String, auth: FileAuth, asset_root: FilePath)
+    : (Credentials | StartupError)
+  =>
     """
     Resolve the credentials path with read-only capabilities and parse it.
+
+    Refuses a file that sits inside the asset root, and one that is readable
+    by anyone but its owner.
     """
     let caps =
       recover val
@@ -196,6 +214,28 @@ primitive _ReadCredentialsFile
           "credentials-missing",
           "--credentials " + path + " does not exist")
       end
+
+    // Everything under the asset root is served unauthenticated, so a
+    // credentials file placed there publishes every hash to anyone who can
+    // reach the socket.
+    if resolved.path.at(asset_root.path, 0) then
+      return StartupError(
+        "credentials-in-asset-root",
+        "--credentials " + resolved.path + " is inside --asset-root "
+          + asset_root.path + ", where every file is served to anyone who"
+          + " can reach this socket")
+    end
+
+    // The file is the offline-attack surface for every account.
+    try
+      let mode = FileInfo(resolved)?.mode
+      if mode.group_read or mode.any_read then
+        return StartupError(
+          "credentials-permissions",
+          "--credentials " + resolved.path + " is readable by users other"
+            + " than its owner; chmod 600 it")
+      end
+    end
 
     ReadCredentials(resolved)
 

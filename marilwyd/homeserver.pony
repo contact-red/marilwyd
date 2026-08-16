@@ -30,6 +30,12 @@ class val Homeserver
     else server_name
     end
 
+  fun user_id(localpart: String): String =>
+    """
+    The Matrix user ID for a local user.
+    """
+    "@" + localpart + ":" + server_name
+
   fun port(): (String | None) =>
     """
     The port inside `server_name`, if it has one.

@@ -79,7 +79,7 @@ run: build/marilwyd build/element
 
 clean:
 	rm -rf build/marilwyd build/marilwyd_test build/marilwyd.o \
-	  build/marilwyd_test.o build/test-asset-root
+	  build/marilwyd_test.o build/test-asset-root build/test-credentials*.json
 
 realclean:
 	rm -rf build
