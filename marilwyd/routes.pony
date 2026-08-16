@@ -16,9 +16,16 @@ primitive Routes
   own vocabulary — `/`, `/element` and `/_matrix` — and nowhere else.
   `/element/bundles` also 404s plain-text, and no client asks for it.
   """
-  fun apply(config: Config): hobby.BuildResult =>
+  fun apply(config: Config, sessions: SessionRegistry tag)
+    : hobby.BuildResult
+  =>
     """
     Build the route table, or report the configuration error that stops it.
+
+    `sessions` is a concrete actor rather than an interface marilwyd owns.
+    The tests boot the real registry over a real socket, so a double buys
+    nothing yet; the trigger for extracting an interface is the first test
+    that needs a failure this registry cannot be made to produce.
     """
     let hs = config.homeserver
     let element_config = _ServeJSON(ElementConfig(hs))
@@ -60,29 +67,37 @@ primitive Routes
       .> get("/_matrix/client/v3/login", _ServeJSON(LoginFlows()))
       .> post(
         "/_matrix/client/v3/login",
-        _ServeJSON(LoginForbidden(), stallion.StatusForbidden))
+        _Login(hs, config.credentials, sessions))
+      .> get(
+        "/_matrix/client/v3/account/whoami",
+        _Whoami(sessions))
       .> get("/_matrix/*endpoint", unrecognized)
     ).build()
+
+primitive _JSONHeaders
+  """
+  The headers every JSON response marilwyd generates carries.
+
+  `no-store` because these bodies are derived from configuration or from a
+  session; a copy cached in a browser would outlive either.
+  """
+  fun apply(): stallion.Headers val =>
+    recover val
+      stallion.Headers
+        .> set("Content-Type", "application/json")
+        .> set("Cache-Control", "no-store")
+    end
 
 class val _ServeJSON
   """
   Respond to every request with one JSON document, rendered once at startup.
-
-  `no-store` because every document marilwyd generates is derived from its
-  configuration; a copy cached in a browser would outlive a configuration
-  change.
   """
   let _headers: stallion.Headers val
   let _body: String
   let _status: stallion.Status
 
   new val create(body: String, status: stallion.Status = stallion.StatusOK) =>
-    _headers =
-      recover val
-        stallion.Headers
-          .> set("Content-Type", "application/json")
-          .> set("Cache-Control", "no-store")
-      end
+    _headers = _JSONHeaders()
     _body = body
     _status = status
 

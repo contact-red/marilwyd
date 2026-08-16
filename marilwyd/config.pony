@@ -11,6 +11,7 @@ class val Config
   let homeserver: Homeserver
   let asset_root: FilePath
   let bundles_root: FilePath
+  let credentials: Credentials
   let bind_host: String
   let bind_port: String
 
@@ -18,12 +19,14 @@ class val Config
     homeserver': Homeserver,
     asset_root': FilePath,
     bundles_root': FilePath,
+    credentials': Credentials,
     bind_host': String,
     bind_port': String)
   =>
     homeserver = homeserver'
     asset_root = asset_root'
     bundles_root = bundles_root'
+    credentials = credentials'
     bind_host = bind_host'
     bind_port = bind_port'
 
@@ -53,6 +56,15 @@ class val HelpRequested
   new val create(text': String) =>
     text = text'
 
+class val HashPasswordRequested
+  """
+  The operator asked for a credentials entry rather than a running server.
+  """
+  let localpart: String
+
+  new val create(localpart': String) =>
+    localpart = localpart'
+
 primitive Configure
   """
   Turns a command line into a `Config`, or explains why it cannot.
@@ -61,18 +73,17 @@ primitive Configure
   everything downstream can trust its configuration.
   """
   fun apply(args: Array[String] val, auth: FileAuth)
-    : (Config | HelpRequested | StartupError)
+    : (Config | HelpRequested | HashPasswordRequested | StartupError)
   =>
     """
     Validate a command line, or say which input was refused.
     """
     let spec =
       try
-        let s =
+        let serve =
           CommandSpec.leaf(
-            "marilwyd",
-            "A very small Matrix homeserver that serves its own Element"
-              + " client.",
+            "serve",
+            "Serve Element and the Matrix Client-Server API.",
             [ OptionSpec.string(
                 "server-name",
                 "Matrix server name, hostname[:port]. Everything clients are"
@@ -81,6 +92,10 @@ primitive Configure
                 "asset-root",
                 "Directory holding the unpacked Element build. Every byte"
                   + " under it is served unauthenticated.")
+              OptionSpec.string(
+                "credentials",
+                "JSON file of password hashes, one entry per local user."
+                  + " Generate entries with 'marilwyd hash-password'.")
               OptionSpec.string(
                 "scheme",
                 "Scheme for the advertised base_url"
@@ -95,6 +110,19 @@ primitive Configure
                   + " 8008 if it has none."
                 where default' = -1)
             ])?
+        let hash =
+          CommandSpec.leaf(
+            "hash-password",
+            "Read a password and print a credentials entry for it.",
+            Array[OptionSpec],
+            [ ArgSpec.string("localpart", "The local part of the user ID") ])?
+        let s =
+          CommandSpec.parent(
+            "marilwyd",
+            "A very small Matrix homeserver that serves its own Element"
+              + " client.",
+            Array[OptionSpec],
+            [ serve; hash ])?
         s .> add_help()?
         s
       else
@@ -107,6 +135,10 @@ primitive Configure
       | let h: CommandHelp => return HelpRequested(h.help_string())
       | let e: SyntaxError => return StartupError("usage", e.string())
       end
+
+    if cmd.spec().name() == "hash-password" then
+      return HashPasswordRequested(cmd.arg("localpart").string())
+    end
 
     let hs =
       match
@@ -126,6 +158,12 @@ primitive Configure
       | let e: StartupError => return e
       end
 
+    let credentials =
+      match _ReadCredentialsFile(cmd.option("credentials").string(), auth)
+      | let c: Credentials => c
+      | let e: StartupError => return e
+      end
+
     match _AssetRoot(cmd.option("asset-root").string(), auth)
     | (let root: FilePath, let bundles: FilePath) =>
       // Named arguments: `bind_host'` and `bind_port'` are adjacent strings
@@ -133,11 +171,33 @@ primitive Configure
       Config._create(
         hs,
         root,
-        bundles
+        bundles,
+        credentials
         where bind_host' = cmd.option("bind-host").string(),
               bind_port' = bind_port)
     | let e: StartupError => e
     end
+
+primitive _ReadCredentialsFile
+  fun apply(path: String, auth: FileAuth): (Credentials | StartupError) =>
+    """
+    Resolve the credentials path with read-only capabilities and parse it.
+    """
+    let caps =
+      recover val
+        FileCaps .> set(FileLookup) .> set(FileRead) .> set(FileStat)
+      end
+
+    let resolved =
+      try
+        FilePath(auth, path, caps).canonical()?
+      else
+        return StartupError(
+          "credentials-missing",
+          "--credentials " + path + " does not exist")
+      end
+
+    ReadCredentials(resolved)
 
 primitive _BindPort
   """

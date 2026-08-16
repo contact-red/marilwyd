@@ -35,16 +35,54 @@ make test
 SHA-256 and unpacked atomically, so an interrupted build cannot leave a
 partial tree that looks up to date.
 
+## Accounts
+
+There is no registration endpoint. Accounts are provisioned from a
+credentials file that holds **password hashes, never passwords** — marilwyd
+never sees a plaintext password at rest, and recovering one from an entry
+costs a PBKDF2 search.
+
+Generate an entry, reading the password from stdin so it never reaches your
+shell history or the process table:
+
+```
+read -rs PASSWORD
+printf '%s' "$PASSWORD" | marilwyd hash-password alice
+```
+
+Collect the entries into a file:
+
+```json
+{
+  "users": [
+    {
+      "localpart": "alice",
+      "algorithm": "pbkdf2-sha256",
+      "iterations": 600000,
+      "salt": "…",
+      "hash": "…"
+    }
+  ]
+}
+```
+
+Each entry carries its own parameters, so raising the iteration count applies
+to new entries without invalidating existing ones.
+
 ## Running
 
 ```
-marilwyd --server-name localhost:8008 --asset-root build/element
+marilwyd serve \
+  --server-name localhost:8008 \
+  --asset-root build/element \
+  --credentials credentials.json
 ```
 
 | Flag | Required | Default |
 |---|---|---|
 | `--server-name` | yes | — |
 | `--asset-root` | yes | — |
+| `--credentials` | yes | — |
 | `--scheme` | no | `http` |
 | `--bind-host` | no | `127.0.0.1` |
 | `--bind-port` | no | the port in `--server-name`, else 8008 |
@@ -96,8 +134,16 @@ public.
 | GET | `/_matrix` | `M_UNRECOGNIZED` |
 | GET | `/_matrix/client/versions` | `["v1.1"]` |
 | GET | `/_matrix/client/v3/login` | the password flow |
-| POST | `/_matrix/client/v3/login` | `M_FORBIDDEN` |
+| POST | `/_matrix/client/v3/login` | verifies a password, issues a token |
+| GET | `/_matrix/client/v3/account/whoami` | resolves a token |
 | GET | `/_matrix/*` | `M_UNRECOGNIZED` |
+
+Sessions live in memory only, so a restart logs everyone out. That is
+deliberate: there is nothing worth persisting until rooms and events exist.
+
+An unknown user and a wrong password produce byte-identical answers, so the
+login endpoint cannot be used to enumerate accounts. Password and token
+comparisons are constant-time.
 
 Element is mounted under `/element/` rather than at the origin root. Its
 release tarball ships `apple-app-site-association` and

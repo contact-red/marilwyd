@@ -17,6 +17,9 @@ actor Main is hobby.ServerNotify
       | let h: HelpRequested =>
         env.out.print(h.text)
         return
+      | let hp: HashPasswordRequested =>
+        HashPassword(env, hp.localpart)
+        return
       | let e: StartupError =>
         env.err.print("marilwyd: " + e.message)
         env.exitcode(1)
@@ -32,7 +35,7 @@ actor Main is hobby.ServerNotify
     env.out.print(
       "marilwyd: clients are told to use " + config.homeserver.base_url())
 
-    match \exhaustive\ Routes(config)
+    match \exhaustive\ Routes(config, SessionRegistry)
     | let built: hobby.BuiltApplication =>
       hobby.Server(
         lori.TCPListenAuth(env.root),

@@ -1,5 +1,6 @@
 use "pony_test"
 use "files"
+use "ssl/crypto"
 use "../marilwyd"
 use hobby = "hobby"
 use lori = "lori"
@@ -27,6 +28,17 @@ actor Main is TestList
     test(_TestBindPortDerivedFromServerName)
     test(_TestBindPortRefusesPrivilegedDerived)
     test(_TestBindPortExplicitOverrides)
+    test(_TestCredentialVerifies)
+    test(_TestCredentialRejectsWrongPassword)
+    test(_TestCredentialsRejectDuplicateLocalpart)
+    test(_TestCredentialsRejectUnknownAlgorithm)
+    test(_TestCredentialsRejectEmptyUserList)
+    test(_TestLoginIssuesAToken)
+    test(_TestLoginRejectsWrongPassword)
+    test(_TestUnknownUserIsIndistinguishable)
+    test(_TestWhoamiWithoutTokenIsUnauthorized)
+    test(_TestWhoamiRejectsAnUnknownToken)
+    test(_TestTokensAreUnguessable)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
@@ -106,9 +118,10 @@ primitive _Serve
     let config =
       match Configure(
         recover val
-          [ "marilwyd"
+          [ "marilwyd"; "serve"
             "--server-name"; "example.test"
             "--asset-root"; root
+            "--credentials"; _CredentialsFixture(h)
             "--bind-host"; _TestHost()
             "--bind-port"; "0" ]
         end, auth)
@@ -116,9 +129,12 @@ primitive _Serve
       | let e: StartupError => h.fail(e.message); h.complete(false); return
       | let hr: HelpRequested => h.fail("help requested"); h.complete(false)
         return
+      | let hp: HashPasswordRequested =>
+        h.fail("hash-password requested"); h.complete(false)
+        return
       end
 
-    match Routes(config)
+    match Routes(config, SessionRegistry)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =
@@ -164,6 +180,49 @@ primitive _Get
   A GET request that closes the connection, so the client sees a complete
   response without needing to parse Content-Length.
   """
-  fun apply(path: String): String =>
-    "GET " + path + " HTTP/1.1\r\nHost: example.test\r\n"
+  fun apply(path: String, headers: String = ""): String =>
+    "GET " + path + " HTTP/1.1\r\nHost: example.test\r\n" + headers
       + "Connection: close\r\n\r\n"
+
+primitive _Post
+  fun apply(path: String, body: String): String =>
+    "POST " + path + " HTTP/1.1\r\nHost: example.test\r\n"
+      + "Content-Length: " + body.size().string() + "\r\n"
+      + "Content-Type: application/json\r\n"
+      + "Connection: close\r\n\r\n" + body
+
+primitive _TestUser
+  fun localpart(): String => "alice"
+  fun password(): String => "hunter2"
+
+  fun iterations(): U32 =>
+    """
+    Low on purpose. Entries carry their own count, so the fixture can be
+    cheap without the production default being cheap — which is the reason
+    the parameter travels with the entry rather than being compiled in.
+    """
+    1000
+
+primitive _CredentialsFixture
+  """
+  A credentials file holding one user, hashed with the real primitives.
+  """
+  fun apply(h: TestHelper): String =>
+    let path = FilePath(FileAuth(h.env.root), "build/test-credentials.json")
+    try
+      let salt = RandBytes(16)?
+      let hash =
+        Pbkdf2Sha256(
+          _TestUser.password(),
+          salt,
+          _TestUser.iterations(),
+          Pbkdf2KeyLength())?
+      let body: String =
+        "{\"users\":[{\"localpart\":\"" + _TestUser.localpart() + "\","
+          + "\"algorithm\":\"pbkdf2-sha256\","
+          + "\"iterations\":" + _TestUser.iterations().string() + ","
+          + "\"salt\":\"" + ToHexString(salt) + "\","
+          + "\"hash\":\"" + ToHexString(hash) + "\"}]}"
+      File(path) .> write(body) .> dispose()
+    end
+    path.path

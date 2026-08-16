@@ -69,15 +69,39 @@ primitive UnrecognizedRequest
       .update("errcode", "M_UNRECOGNIZED")
       .update("error", "Unrecognized request"))
 
-primitive LoginForbidden
+primitive MatrixError
   """
-  The body for `POST /_matrix/client/v3/login`.
-
-  marilwyd has no accounts, so every login legitimately fails. Answering with
-  a Matrix error rather than a 405 is what lets Element render "Incorrect
-  username and/or password" instead of throwing.
+  A Matrix error body. `errcode` is what clients branch on; `error` is for a
+  person reading a log or a dialog.
   """
-  fun apply(): String =>
+  fun apply(errcode: String, message: String): String =>
     JsonPrinter.print(JsonObject
-      .update("errcode", "M_FORBIDDEN")
-      .update("error", "marilwyd has no accounts"))
+      .update("errcode", errcode)
+      .update("error", message))
+
+primitive LoginSuccess
+  """
+  The body of a successful `POST /_matrix/client/v3/login`.
+
+  `home_server` is deprecated in the spec but still read by clients in the
+  wild, and costs one field.
+  """
+  fun apply(
+    user_id: String,
+    access_token: String,
+    device_id: String,
+    server_name: String)
+    : String
+  =>
+    JsonPrinter.print(JsonObject
+      .update("user_id", user_id)
+      .update("access_token", access_token)
+      .update("device_id", device_id)
+      .update("home_server", server_name))
+
+primitive WhoamiSuccess
+  """
+  The body of `GET /_matrix/client/v3/account/whoami`.
+  """
+  fun apply(user_id: String): String =>
+    JsonPrinter.print(JsonObject.update("user_id", user_id))

@@ -30,6 +30,35 @@ hand.
 The asset root is opened with `{FileLookup, FileRead, FileStat}` only, so the
 exposure is disclosure, never modification.
 
+## Credentials and tokens
+
+The credentials file holds PBKDF2-HMAC-SHA256 hashes, never passwords.
+marilwyd has no code path that writes a plaintext password anywhere, and
+`hash-password` reads one from stdin rather than from an argument so it does
+not reach the process table or shell history. Still, treat the file as
+sensitive: it is the offline-attack surface for every account, and a weak
+password behind it is only as strong as the iteration count in its entry.
+
+`AccessToken` is deliberately not `Stringable` and has no `string()`. A token
+cannot reach a log line, an error message, or a string concatenation by
+accident, because none of those compile. `reveal` is the single deliberate
+exit and has exactly one call site: the body of a successful login response.
+
+Password and token comparisons both go through `ConstantTimeCompare`, so
+neither leaks where a supplied value first differs from the real one. Token
+resolution is a linear scan for that reason rather than a keyed lookup.
+
+An unknown user and a wrong password produce identical responses, so login
+cannot be used to enumerate accounts.
+
+Matrix permits `?access_token=` in a query string. marilwyd reads only the
+`Authorization: Bearer` header — a query string reaches logs, proxies and
+browser history far too easily.
+
+**Not yet done:** tokens never expire and there is no logout, so the only way
+to revoke one is to restart. Sessions are in memory, so a restart revokes all
+of them.
+
 ## Deployment shape
 
 marilwyd never terminates TLS: it calls `hobby.Server`, not
