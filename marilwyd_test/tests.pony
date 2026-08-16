@@ -173,7 +173,7 @@ class \nodoc\ iso _TestServerNameRejectsURL is UnitTest
   fun name(): String => "identity/--server-name rejects a URL"
 
   fun apply(h: TestHelper) =>
-    match MakeHomeserver.http("https://example.test")
+    match \exhaustive\ MakeHomeserver.http("https://example.test")
     | let e: StartupError => h.assert_eq[String]("server-name", e.cause)
     | let hs: Homeserver => h.fail("accepted a URL as --server-name")
     end
@@ -186,7 +186,7 @@ class \nodoc\ iso _TestServerNameRejectsBadPort is UnitTest
   fun name(): String => "identity/--server-name rejects a non-numeric port"
 
   fun apply(h: TestHelper) =>
-    match MakeHomeserver.http("localhost:http")
+    match \exhaustive\ MakeHomeserver.http("localhost:http")
     | let e: StartupError => h.assert_eq[String]("server-name", e.cause)
     | let hs: Homeserver => h.fail("accepted a non-numeric port")
     end
@@ -200,7 +200,7 @@ class \nodoc\ iso _TestBindPortDerivedFromServerName is UnitTest
   fun name(): String => "bind-port/derives from the port in --server-name"
 
   fun apply(h: TestHelper) =>
-    match _Configure(
+    match \exhaustive\ _Configure(
       h, "localhost:8443", _Fixture(h), None, _CredentialsFixture(h))
     | let c: Config => h.assert_eq[String]("8443", c.bind_port)
     | let e: StartupError => h.fail(e.message)
@@ -214,7 +214,7 @@ class \nodoc\ iso _TestBindPortRefusesPrivilegedDerived is UnitTest
   fun name(): String => "bind-port/refuses a derived port below 1024"
 
   fun apply(h: TestHelper) =>
-    match _Configure(h, "contact.red:443", "/nonexistent", None)
+    match \exhaustive\ _Configure(h, "contact.red:443", "/nonexistent", None)
     | let c: Config => h.fail("derived a privileged port: " + c.bind_port)
     | let e: StartupError => h.assert_eq[String]("bind-port", e.cause)
     end
@@ -224,7 +224,7 @@ class \nodoc\ iso _TestBindPortExplicitOverrides is UnitTest
     "bind-port/an explicit --bind-port wins, even privileged"
 
   fun apply(h: TestHelper) =>
-    match _Configure(
+    match \exhaustive\ _Configure(
       h, "localhost:8448", _Fixture(h), "443", _CredentialsFixture(h))
     | let c: Config => h.assert_eq[String]("443", c.bind_port)
     | let e: StartupError => h.fail(e.message)

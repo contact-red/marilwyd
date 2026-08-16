@@ -130,7 +130,7 @@ primitive _Serve
     let root = _Fixture(h)
 
     let config =
-      match Configure(
+      match \exhaustive\ Configure(
         recover val
           [ "marilwyd"; "serve"
             "--server-name"; "example.test"
@@ -148,7 +148,7 @@ primitive _Serve
         return
       end
 
-    match Routes(config, SessionRegistry)
+    match \exhaustive\ Routes(config, SessionRegistry)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =

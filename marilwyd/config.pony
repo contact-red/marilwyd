@@ -130,7 +130,7 @@ primitive Configure
       end
 
     let cmd =
-      match CommandParser(spec).parse(args)
+      match \exhaustive\ CommandParser(spec).parse(args)
       | let c: Command => c
       | let h: CommandHelp => return HelpRequested(h.help_string())
       | let e: SyntaxError =>
@@ -154,7 +154,7 @@ primitive Configure
     end
 
     let hs =
-      match
+      match \exhaustive\
         match cmd.option("scheme").string()
         | "http" => MakeHomeserver.http(cmd.option("server-name").string())
         | "https" => MakeHomeserver.https(cmd.option("server-name").string())
@@ -166,15 +166,15 @@ primitive Configure
       end
 
     let bind_port =
-      match _BindPort(cmd.option("bind-port").i64(), hs.port())
+      match \exhaustive\ _BindPort(cmd.option("bind-port").i64(), hs.port())
       | let p: String => p
       | let e: StartupError => return e
       end
 
-    match _AssetRoot(cmd.option("asset-root").string(), auth)
+    match \exhaustive\ _AssetRoot(cmd.option("asset-root").string(), auth)
     | (let root: FilePath, let bundles: FilePath) =>
       let credentials =
-        match
+        match \exhaustive\
           _ReadCredentialsFile(cmd.option("credentials").string(), auth, root)
         | let c: Credentials => c
         | let e: StartupError => return e

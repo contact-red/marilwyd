@@ -3,6 +3,9 @@ ELEMENT_SHA256  := 14d7f2671eb1fbccc690e7f176042d72ed2b4e34f7326a007e8b1540b1e74
 ELEMENT_URL     := https://github.com/element-hq/element-web/releases/download/$(ELEMENT_VERSION)/element-$(ELEMENT_VERSION).tar.gz
 ELEMENT_TARBALL := element-source/element-$(ELEMENT_VERSION).tar.gz
 
+GET_DEPENDENCIES_WITH := corral fetch
+LINT_WITH := corral run -- pony-lint
+
 config ?= release
 ifdef config
   ifeq (,$(filter $(config),debug release))
@@ -33,21 +36,30 @@ endif
 SOURCES := $(wildcard marilwyd/*.pony)
 TEST_SOURCES := $(wildcard marilwyd_test/*.pony)
 
-.PHONY: all build test run clean realclean
+.PHONY: all build test lint run clean realclean
 all: build
 
 build: build/marilwyd
 
 build/marilwyd: $(SOURCES)
 	mkdir -p build
+	$(GET_DEPENDENCIES_WITH)
 	corral run -- ponyc $(PONYC_FLAGS) -o build marilwyd
 
 build/marilwyd_test: $(SOURCES) $(TEST_SOURCES)
 	mkdir -p build
+	$(GET_DEPENDENCIES_WITH)
 	corral run -- ponyc $(PONYC_FLAGS) -o build marilwyd_test
 
 test: build/marilwyd_test
 	build/marilwyd_test
+
+# No ssl= needed: pony-lint reads the sources and does not link. It runs
+# through corral so it can resolve the dependency packages.
+lint:
+	$(GET_DEPENDENCIES_WITH)
+	$(LINT_WITH) marilwyd
+	$(LINT_WITH) marilwyd_test
 
 # Element is a release artifact, not source. The checksum is what makes an
 # untracked 40MB tarball reproducible; the extract is atomic so an interrupted

@@ -206,7 +206,7 @@ primitive _AssertCredentialsRefused
         FileAuth(h.env.root),
         "build/test-credentials-" + fixture + ".json")
     File(path) .> set_length(0) .> write(body) .> dispose()
-    match ReadCredentials(path)
+    match \exhaustive\ ReadCredentials(path)
     | let c: Credentials => h.fail("accepted " + body)
     | let e: StartupError => h.assert_eq[String](expected_cause, e.cause)
     end
