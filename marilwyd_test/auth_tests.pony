@@ -176,8 +176,11 @@ primitive _Entry
 
 primitive _Hex
   """
-  `n` bytes of hex, for a fixture that needs a well-formed value and does not
-  care which one.
+  A fixed, well-formed value of a given length, for fixtures that need one
+  and do not care which.
+
+  Fixed rather than random on purpose: concurrent tests share fixture files,
+  so the bytes written must be the same every time.
   """
   fun apply(n: USize): String =>
     let s = recover String(n * 2) end
@@ -185,6 +188,9 @@ primitive _Hex
       s.append("ab")
     end
     consume s
+
+  fun bytes(n: USize): Array[U8] val =>
+    recover val Array[U8].init(0xab, n) end
 
 primitive _AssertCredentialsRefused
   fun apply(
