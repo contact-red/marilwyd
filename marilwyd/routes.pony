@@ -21,6 +21,8 @@ primitive Routes
   fun apply(
     config: Config,
     sessions: SessionRegistry tag,
+    rooms: RoomDirectory tag,
+    epoch: StreamEpoch,
     log: (OutStream tag | None) = None)
     : hobby.BuildResult
   =>
@@ -95,7 +97,23 @@ primitive Routes
       .> post(
         "/_matrix/client/v3/delete_devices",
         _DeleteDevices(sessions))
-      .> get("/_matrix/client/v3/sync", _Sync(sessions))
+      .> get("/_matrix/client/v3/sync", _Sync(sessions, epoch))
+      .> post("/_matrix/client/v3/createRoom", _CreateRoom(sessions, rooms))
+      // `/join/{roomIdOrAlias}` and not `/rooms/{roomId}/join`: the former
+      // is what matrix-js-sdk builds and the latter has no call site in
+      // any client marilwyd ships.
+      .> post(
+        "/_matrix/client/v3/join/:roomIdOrAlias",
+        _JoinRoom(sessions, rooms))
+      .> post(
+        "/_matrix/client/v3/rooms/:roomId/leave",
+        _LeaveRoom(sessions, rooms))
+      .> put(
+        "/_matrix/client/v3/rooms/:roomId/send/:eventType/:txnId",
+        _SendEvent(sessions, rooms))
+      .> get(
+        "/_matrix/client/v3/rooms/:roomId/state",
+        _RoomState(sessions, rooms))
       // Element asks for `/pushrules/`. hobby strips a trailing slash at
       // both registration and lookup, so the two spellings are one route
       // and only one may be registered — a second would silently replace

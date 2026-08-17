@@ -19,9 +19,11 @@ primitive MaxSyncWait
   thing that closes a connection whose client has stopped reading.
 
   Element asks for 30,000. It gets 25,000 and re-asks; measured at 25.001 s
-  per cycle across a real session. The margin is also the whole latency
-  budget for `SessionRegistry.resolve`, because hobby starts its watchdog
-  at dispatch while this deadline starts only after the token resolves.
+  per cycle across a real session. The margin is the latency budget for
+  everything between dispatch and the answer — resolving the token, and
+  then one hop to the device that owns the queue — because hobby starts its
+  watchdog at dispatch while this deadline starts only after the token
+  resolves.
   """
   fun apply(): U64 => 25_000
 
@@ -43,6 +45,22 @@ primitive UndecodableQuery
   """
   fun message(): String =>
     "query string is not valid percent-encoding"
+
+primitive SyncSince
+  """
+  The `since` a client sent, as text, unread.
+
+  What a position *means* is the stream's business, not the query string's
+  — this only finds it.
+  """
+  fun apply(query: (String | None)): (String | None) =>
+    match query
+    | let q: String =>
+      match \exhaustive\ uri.ParseQueryParameters(q)
+      | let p: uri.QueryParams val => p.get("since")
+      | let _: uri.InvalidPercentEncoding val => None
+      end
+    end
 
 primitive SyncWait
   """
@@ -105,17 +123,20 @@ class val _Sync
   timed by two independent ones.
   """
   let _sessions: SessionRegistry tag
+  let _epoch: StreamEpoch
   let _timers: Timers tag = Timers
 
-  new val create(sessions: SessionRegistry tag) =>
+  new val create(sessions: SessionRegistry tag, epoch: StreamEpoch) =>
     _sessions = sessions
+    _epoch = epoch
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _SyncHandler(consume ctx, _sessions, _timers)
+    _SyncHandler(consume ctx, _sessions, _timers, _epoch)
 
-actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
+actor _SyncHandler is
+  (hobby.HandlerReceiver & UserReceiver & SyncReceiver)
   """
   Waits out one client's `/sync`, then answers it.
 
@@ -132,15 +153,19 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
   """
   embed _handler: hobby.RequestHandler
   let _timers: Timers tag
+  let _epoch: StreamEpoch
   let _query: (String | None)
   var _timer: (Timer tag | None) = None
   var _disposed: Bool = false
+  var _stream: (Device tag | None) = None
 
   new create(
     ctx: hobby.HandlerContext iso,
     sessions: SessionRegistry tag,
-    timers: Timers tag)
+    timers: Timers tag,
+    epoch: StreamEpoch)
   =>
+    _epoch = epoch
     let supplied = _BearerToken(ctx.request)
     // Captured raw and parsed only after the token resolves. Parsing here
     // would let an unauthenticated caller drive a full percent-decode.
@@ -154,25 +179,27 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
       _respond(stallion.StatusUnauthorized, MissingToken())
     end
 
-  be token_resolved(user_id: String, device: DeviceId) =>
-    // `dispose` can arrive before this: a client that connects, sends, and
-    // resets gets its connection torn down while the registry is still
-    // being asked. Without this check the handler would arm a deadline for
-    // a connection that has gone, and hold itself, its `Request` and the
-    // `_Connection` actor alive for the whole wait — while lori has
-    // already released the socket and the accept slot that would otherwise
-    // account for it.
+  be token_resolved(session: Session) =>
+    // `dispose` can arrive before this, when a client connects, sends and
+    // resets while the registry is still being asked. Without this check
+    // the handler would park a waiter on a connection that has gone.
     if _disposed then
       return
     end
 
     match \exhaustive\ SyncWait(_query)
     | let ms: U64 =>
-      if ms == 0 then
-        _answer()
-      else
+      _stream = session.stream
+      // The deadline stays here rather than moving to the device: a timer
+      // fires on the `Timers` actor either way, and keeping it here means
+      // a device serialising many clients' events never also serialises
+      // their deadlines. What the device owns is the *answer*, so a woken
+      // sync and an expired one are rendered by the same code.
+      if ms > 0 then
         _arm(ms)
       end
+      session.stream.sync(
+        ReadStreamPosition(SyncSince(_query), _epoch), ms, this)
     | MalformedSyncTimeout => _refuse(MalformedSyncTimeout.message())
     | UndecodableQuery => _refuse(UndecodableQuery.message())
     end
@@ -182,11 +209,23 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
 
   be waited() =>
     _timer = None
-    _answer()
+    match _stream
+    | let stream: Device tag => stream.expired(this)
+    end
+
+  be synced(view: SyncView) =>
+    // Cancel first: an answered sync that leaves its deadline armed keeps
+    // this handler, its connection and its request alive until it fires.
+    _cancel()
+    _handler.respond_with_headers(
+      stallion.StatusOK, _JSONHeaders(), SyncDocument(view))
 
   be dispose() =>
     _disposed = true
     _cancel()
+    match _stream
+    | let stream: Device tag => stream.abandon(this)
+    end
 
   be throttled() => None
   be unthrottled() => None
@@ -198,10 +237,6 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
     let handle: Timer tag = timer
     _timer = handle
     _timers(consume timer)
-
-  fun ref _answer() =>
-    _handler.respond_with_headers(
-      stallion.StatusOK, _JSONHeaders(), EmptySync())
 
   fun ref _refuse(why: String) =>
     _respond(

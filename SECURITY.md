@@ -94,8 +94,10 @@ one of your own devices from an absent one; that discloses nothing an
 account cannot already list about itself.
 
 Revocation is not instant for a client mid-poll: a `/sync` already being
-held answers its empty document up to `MaxSyncWait()` later, and the
-request after that is the first one refused.
+held answers up to `MaxSyncWait()` later, and the request after that is the
+first one refused. Since rooms exist, that answer can carry room content
+sent after the session was revoked — a window the old always-empty `/sync`
+did not have.
 
 Deleting a device deviates from the specification in one way: Matrix defines
 that endpoint as requiring user-interactive authentication, and marilwyd has
@@ -193,6 +195,38 @@ The bound to add first, if this becomes real: a count of held syncs, with
 anything above it answered immediately instead of held. Matrix permits a
 server to answer before the requested timeout, so that degrades to the
 immediate-answer behaviour rather than to an error.
+
+## Cost of a room
+
+A room keeps no messages, so nothing accumulates in one. What accumulates
+is per device: an event is fanned out to every member's devices as it
+arrives, and a device that is not syncing holds what it has not
+acknowledged.
+
+`PendingLimit()` bounds that at a thousand events per device. Past it the
+oldest are dropped and the device is marked as having a gap, which it can
+see and nothing can fill. Dropping rather than refusing is deliberate: the
+alternative lets one sleeping device stop a room delivering to everyone
+else.
+
+What this bounds and what it does not:
+
+* Bounded — how much one device accumulates while away, and therefore how
+  much an account accumulates, since a device count is bounded by logins.
+* **Not bounded** — the number of rooms, the number of members in one, and
+  the current state a room holds. A room's name comes from its creator and
+  nothing caps its length. Every one of those needs an authenticated
+  account, so this is the same posture as the login cost above: stated,
+  and left for a rate limiter in front rather than a bound here.
+
+A room id is the whole of the access control on a room. Anyone holding one
+can join, there are no invitations, and nothing revokes an id — a room
+cannot be renamed into a new one and a member cannot be removed by anyone
+but themselves. It is 128 bits from the CSPRNG so it cannot be guessed,
+which makes disclosure the only way one escapes. `--log-requests` prints
+paths, and three of the room endpoints carry the id in the path, so **do
+not enable request logging on a deployment where room ids matter** until
+that is redacted.
 
 ## Deployment shape
 

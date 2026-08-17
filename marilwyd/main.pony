@@ -66,7 +66,20 @@ actor Main is hobby.ServerNotify
 
     let log = if config.log_requests then env.out else None end
 
-    match \exhaustive\ Routes(config, SessionRegistry, log)
+    // Minted here, where a CSPRNG failure can still stop the process: an
+    // actor constructor cannot report one.
+    let epoch =
+      match MakeStreamEpoch()
+      | let e: StreamEpoch => e
+      else
+        env.err.print("marilwyd: " + NoSecureRandom.string())
+        env.exitcode(1)
+        return
+      end
+
+    let rooms = RoomDirectory(config.homeserver)
+
+    match \exhaustive\ Routes(config, SessionRegistry(epoch), rooms, epoch, log)
     | let built: hobby.BuiltApplication =>
       hobby.Server(
         lori.TCPListenAuth(env.root),

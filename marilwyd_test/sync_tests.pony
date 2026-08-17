@@ -152,34 +152,40 @@ class \nodoc\ iso _TestSyncAnswersAtOnceWithoutATimeout is UnitTest
       } val,
       {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
-        _AssertJSONKey(h, r, "next_batch", "s0")
+        // A real position now, stamped with this process's epoch, so a
+        // token minted by a previous run is recognisable as stale rather
+        // than mistaken for one of ours.
+        h.assert_true(r.contains("\"next_batch\":\"s"), r)
+        // Nothing else: a client in no rooms must see what it saw when
+        // marilwyd had no rooms at all, or matrix-js-sdk stays pinned at
+        // timeout=0 and re-asks in a tight loop.
+        h.assert_false(r.contains("rooms"), r)
+        h.assert_false(r.contains("to_device"), r)
       } val)
 
-class \nodoc\ iso _TestSyncHoldsForTheRequestedTimeout is UnitTest
+class \nodoc\ iso _TestFirstSyncDoesNotHold is UnitTest
   """
-  The one test that proves the endpoint actually waits. A short timeout
-  rather than the cap: the cap is asserted against hobby's constant in
-  `_TestMaxSyncWaitIsUnderTheWatchdog`, which needs no wall-clock at all.
+  A client with no position is owed everything it can see, so there is
+  nothing to wait for — it is answered at once even though it asked to
+  wait.
+
+  This is why the wake is tested against a `Device` rather than over HTTP:
+  parking needs a position, and a position needs a sync to have happened.
   """
-  fun name(): String => "sync/a timeout is held before answering"
+  fun name(): String => "sync/a first sync answers without holding"
 
   fun apply(h: TestHelper) =>
     _ServeAuthed(
       h,
       {(token) =>
         _Get(
-          "/_matrix/client/v3/sync?timeout=1500",
+          "/_matrix/client/v3/sync?timeout=25000",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
-        // Bounded on both sides. Without a lower bound the test passes with
-        // the wait removed; without an upper one it passes if the deadline
-        // were armed at the cap instead of at what was asked for.
         h.assert_true(
-          held >= 1_400, "answered after only " + held.string() + " ms")
-        h.assert_true(
-          held < 10_000, "answered after " + held.string() + " ms")
+          held < 5_000, "held a first sync for " + held.string() + " ms")
       } val)
 
 class \nodoc\ iso _TestSyncRefusesAMalformedTimeout is UnitTest

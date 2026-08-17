@@ -35,6 +35,7 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
   embed _handler: hobby.RequestHandler
   let _homeserver: Homeserver
   var _user_id: String = ""
+  var _device_id: (String | None) = None
 
   new create(
     ctx: hobby.HandlerContext iso,
@@ -51,7 +52,8 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
       match credentials(r.localpart)
       | let c: Credential if c.verify(r.password) =>
         _user_id = _homeserver.user_id(r.localpart)
-        sessions.issue(_user_id, this)
+        _device_id = r.device_id
+        sessions.issue(_user_id, _device_id, this)
       | let c: Credential =>
         _refuse()
       else
@@ -97,14 +99,23 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
 
 class val _LoginRequest
   """
-  The two fields marilwyd needs out of a login request body.
+  What marilwyd needs out of a login request body.
+
+  `device_id` is optional. It is the client asking to resume a device it
+  already had, which is how one that signed out finds what was held for it.
   """
   let localpart: String
   let password: String
+  let device_id: (String | None)
 
-  new val create(localpart': String, password': String) =>
+  new val create(
+    localpart': String,
+    password': String,
+    device_id': (String | None))
+  =>
     localpart = localpart'
     password = password'
+    device_id = device_id'
 
 class val _LoginRefusal
   """
@@ -217,4 +228,12 @@ primitive _ParseLogin
         user
       end
 
-    _LoginRequest(consume localpart, password)
+    // Optional, and read as text: a device id the client names is only
+    // honoured if this account already has it, so nothing client-chosen
+    // becomes a device id.
+    let requested =
+      match o.get_or_else("device_id", None)
+      | let d: String => d
+      end
+
+    _LoginRequest(consume localpart, password, requested)

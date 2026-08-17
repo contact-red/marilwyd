@@ -1,3 +1,4 @@
+use "collections"
 use "json"
 
 primitive ElementConfig
@@ -140,6 +141,43 @@ primitive DeviceList
     end
     JsonPrinter.print(JsonObject.update("devices", listed))
 
+primitive RoomCreated
+  """
+  The body of `createRoom`, and of joining or leaving one.
+
+  All three answer with the room's id, which is what the specification
+  gives each of them.
+  """
+  fun apply(room: RoomId): String =>
+    JsonPrinter.print(JsonObject.update("room_id", room.string()))
+
+primitive EventSent
+  """
+  The body of a successful send.
+  """
+  fun apply(id: EventId): String =>
+    JsonPrinter.print(JsonObject.update("event_id", id.string()))
+
+primitive StateEvents
+  """
+  The body of `GET /rooms/{roomId}/state` — a bare array of state events.
+  """
+  fun apply(events: Array[RoomEvent] val): String =>
+    recover val
+      let out = String(256 * (events.size() + 1))
+      out.append("[")
+      var first = true
+      for event in events.values() do
+        if not first then
+          out.append(",")
+        end
+        first = false
+        out.append(event.render())
+      end
+      out.append("]")
+      out
+    end
+
 primitive LogoutSuccess
   """
   The body of `POST /_matrix/client/v3/logout` and of deleting devices.
@@ -149,32 +187,85 @@ primitive LogoutSuccess
   """
   fun apply(): String => JsonPrinter.print(JsonObject)
 
-primitive EmptySync
+primitive SyncDocument
   """
-  The body of a `/sync` that has nothing to report.
+  The body of `GET /_matrix/client/v3/sync`.
 
-  `next_batch` is a constant because there is no event stream for it to
-  point into. A client sends it back as `since` and marilwyd ignores it.
-  The day events exist is the day this becomes a real stream position —
-  and note that clients keep it in durable storage, so a value minted now
-  comes back after a restart.
+  An empty view renders `next_batch` and nothing else. `rooms` is omitted
+  when there is nothing in it, and `to_device` is never emitted at all —
+  matrix-js-sdk pins `timeout=0` while it believes it is catching up and
+  clears that only on a sync whose `to_device.events` is absent or empty,
+  so a client with nothing to receive must see byte-identically what it saw
+  when marilwyd had no rooms at all.
 
-  Every other key the specification defines here is optional. Validated
-  against **Element 1.12.25 with no rooms**: it drives its sync loop from
-  this document alone and never enters an error state. Adding
-  `rooms`/`presence`/`account_data` changed nothing, so they are not here.
-  Re-check when the Element version changes, or when there are rooms.
-
-  Omitting `to_device` is load-bearing rather than merely minimal.
-  matrix-js-sdk pins `timeout=0` while it believes it is catching up, and
-  clears that only on a sync whose `to_device.events` is absent or empty —
-  so this document is what moves the client onto the 25-second cadence. A
-  future `to_device` carrying events puts it back into immediate re-asking,
-  which is correct there but is the same shape as the request storm this
-  endpoint exists to prevent.
+  Events arrive in the order a device was given them, across every room it
+  is in, and are grouped by room here because that is the shape a client
+  reads.
   """
-  fun apply(): String =>
-    JsonPrinter.print(JsonObject.update("next_batch", "s0"))
+  fun apply(view: SyncView): String =>
+    recover val
+      let grouped = Map[String, Array[RoomEvent]]
+      for event in view.events.values() do
+        let key: String = event.room.string()
+        try
+          grouped(key)?.push(event)
+        else
+          let fresh = Array[RoomEvent]
+          fresh.push(event)
+          grouped(key) = fresh
+        end
+      end
+      // A room whose only news is state still needs an entry, or a client
+      // is told about a room it has never heard of.
+      for event in view.state.values() do
+        let key: String = event.room.string()
+        if not grouped.contains(key) then
+          grouped(key) = Array[RoomEvent]
+        end
+      end
+
+      let out = String(512)
+      out.append("{\"next_batch\":")
+      out.append(JsonPrinter.print(view.next_batch))
+      if grouped.size() > 0 then
+        out.append(",\"rooms\":{\"join\":{")
+        var first = true
+        for (room_id, events) in grouped.pairs() do
+          if not first then
+            out.append(",")
+          end
+          first = false
+          out.append(JsonPrinter.print(room_id))
+
+          out.append(":{\"state\":{\"events\":[")
+          var state_first = true
+          for event in view.state.values() do
+            let key: String = event.room.string()
+            if key == room_id then
+              if not state_first then
+                out.append(",")
+              end
+              state_first = false
+              out.append(event.render())
+            end
+          end
+
+          out.append("]},\"timeline\":{\"events\":[")
+          var line_first = true
+          for event in events.values() do
+            if not line_first then
+              out.append(",")
+            end
+            line_first = false
+            out.append(event.render())
+          end
+          out.append("],\"limited\":false}}")
+        end
+        out.append("}}")
+      end
+      out.append("}")
+      out
+    end
 
 primitive PushRules
   """

@@ -15,8 +15,12 @@ class \nodoc\ iso _TestIssuedTokenResolves is UnitTest
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    let registry = SessionRegistry
-    registry.issue("@alice:example.test", _CollectToken(h, registry))
+    try
+      let registry = SessionRegistry(_AnyEpoch()?)
+      registry.issue("@alice:example.test", None, _CollectToken(h, registry))
+    else
+      _NoRandom(h)
+    end
 
 class \nodoc\ iso _TestUnknownTokenDoesNotResolve is UnitTest
   """
@@ -27,8 +31,13 @@ class \nodoc\ iso _TestUnknownTokenDoesNotResolve is UnitTest
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    let registry = SessionRegistry
-    registry.resolve("not a token this registry issued", _ExpectRejected(h))
+    try
+      let registry = SessionRegistry(_AnyEpoch()?)
+      registry.resolve(
+        "not a token this registry issued", _ExpectRejected(h))
+    else
+      _NoRandom(h)
+    end
 
 class \nodoc\ iso _TestDeviceIdIsNotTheAccessToken is UnitTest
   """
@@ -40,8 +49,13 @@ class \nodoc\ iso _TestDeviceIdIsNotTheAccessToken is UnitTest
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    let registry = SessionRegistry
-    registry.issue("@alice:example.test", _CheckDeviceId(h, registry))
+    try
+      let registry = SessionRegistry(_AnyEpoch()?)
+      registry.issue(
+        "@alice:example.test", None, _CheckDeviceId(h, registry))
+    else
+      _NoRandom(h)
+    end
 
 actor _CollectToken is TokenReceiver
   let _h: TestHelper
@@ -83,9 +97,10 @@ actor _ExpectResolved is UserReceiver
   new create(h: TestHelper) =>
     _h = h
 
-  be token_resolved(user_id: String, device: DeviceId) =>
-    _h.assert_eq[String]("@alice:example.test", user_id)
-    _h.assert_true(device.string().size() > 0, "resolved without a device")
+  be token_resolved(session: Session) =>
+    _h.assert_eq[String]("@alice:example.test", session.user_id)
+    _h.assert_true(
+      session.device.string().size() > 0, "resolved without a device")
     _h.complete(true)
 
   be token_rejected() =>
@@ -98,8 +113,8 @@ actor _ExpectRejected is UserReceiver
   new create(h: TestHelper) =>
     _h = h
 
-  be token_resolved(user_id: String, device: DeviceId) =>
-    _h.fail("resolved a token that was never issued: " + user_id)
+  be token_resolved(session: Session) =>
+    _h.fail("resolved a token that was never issued: " + session.user_id)
     _h.complete(false)
 
   be token_rejected() =>
@@ -115,7 +130,11 @@ class \nodoc\ iso _TestTwoLoginsAreTwoDevices is UnitTest
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    _TwoDevices(h)
+    try
+      _TwoDevices(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
 
 class \nodoc\ iso _TestRevokeEndsOnlyThatSession is UnitTest
   """
@@ -136,7 +155,11 @@ class \nodoc\ iso _TestRevokeEndsOnlyThatSession is UnitTest
     h.long_test(10_000_000_000)
     h.expect_action("revoked token is refused")
     h.expect_action("surviving token still resolves")
-    _RevokeOne(h)
+    try
+      _RevokeOne(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
 
 class \nodoc\ iso _TestDeviceRevocationIsScopedToItsOwner is UnitTest
   """
@@ -148,7 +171,11 @@ class \nodoc\ iso _TestDeviceRevocationIsScopedToItsOwner is UnitTest
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    _CrossUser(h)
+    try
+      _CrossUser(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
 
 actor _TwoDevices is TokenReceiver
   """
@@ -159,10 +186,10 @@ actor _TwoDevices is TokenReceiver
   var _first: (DeviceId | None) = None
   var _first_token: (AccessToken | None) = None
 
-  new create(h: TestHelper) =>
+  new create(h: TestHelper, epoch: StreamEpoch) =>
     _h = h
-    _registry = SessionRegistry
-    _registry.issue("@alice:example.test", this)
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
 
   be token_issued(token: AccessToken, device: DeviceId) =>
     match (_first, _first_token)
@@ -177,7 +204,7 @@ actor _TwoDevices is TokenReceiver
     else
       _first = device
       _first_token = token
-      _registry.issue("@alice:example.test", this)
+      _registry.issue("@alice:example.test", None, this)
     end
 
   be token_refused() =>
@@ -194,10 +221,10 @@ actor _RevokeOne is (TokenReceiver & RevocationReceiver)
   var _first: (AccessToken | None) = None
   var _second: (AccessToken | None) = None
 
-  new create(h: TestHelper) =>
+  new create(h: TestHelper, epoch: StreamEpoch) =>
     _h = h
-    _registry = SessionRegistry
-    _registry.issue("@alice:example.test", this)
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
 
   be token_issued(token: AccessToken, device: DeviceId) =>
     match _first
@@ -207,7 +234,7 @@ actor _RevokeOne is (TokenReceiver & RevocationReceiver)
       _registry.revoke(token.reveal(), this)
     else
       _first = token
-      _registry.issue("@alice:example.test", this)
+      _registry.issue("@alice:example.test", None, this)
     end
 
   be token_refused() =>
@@ -239,10 +266,10 @@ actor _CrossUser is (TokenReceiver & RevocationReceiver)
   var _alice: (AccessToken | None) = None
   var _bob: (AccessToken | None) = None
 
-  new create(h: TestHelper) =>
+  new create(h: TestHelper, epoch: StreamEpoch) =>
     _h = h
-    _registry = SessionRegistry
-    _registry.issue("@alice:example.test", this)
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
 
   be token_issued(token: AccessToken, device: DeviceId) =>
     match _alice
@@ -255,7 +282,7 @@ actor _CrossUser is (TokenReceiver & RevocationReceiver)
       end
     else
       _alice = token
-      _registry.issue("@bob:example.test", this)
+      _registry.issue("@bob:example.test", None, this)
     end
 
   be token_refused() =>
@@ -280,8 +307,8 @@ actor _ExpectBob is UserReceiver
   new create(h: TestHelper) =>
     _h = h
 
-  be token_resolved(user_id: String, device: DeviceId) =>
-    _h.assert_eq[String]("@bob:example.test", user_id)
+  be token_resolved(session: Session) =>
+    _h.assert_eq[String]("@bob:example.test", session.user_id)
     _h.complete(true)
 
   be token_rejected() =>
@@ -300,7 +327,7 @@ actor _ExpectGone is UserReceiver
     _h = h
     _action = action
 
-  be token_resolved(user_id: String, device: DeviceId) =>
+  be token_resolved(session: Session) =>
     _h.fail_action(_action)
 
   be token_rejected() =>
@@ -317,7 +344,7 @@ actor _ExpectLive is UserReceiver
     _h = h
     _action = action
 
-  be token_resolved(user_id: String, device: DeviceId) =>
+  be token_resolved(session: Session) =>
     _h.complete_action(_action)
 
   be token_rejected() =>
@@ -338,7 +365,11 @@ class \nodoc\ iso _TestDeletingADeviceEndsThatSession is UnitTest
     h.long_test(10_000_000_000)
     h.expect_action("deleted token is refused")
     h.expect_action("deleting token still resolves")
-    _DeleteSecond(h)
+    try
+      _DeleteSecond(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
 
 actor _DeleteSecond is (TokenReceiver & RevocationReceiver)
   let _h: TestHelper
@@ -346,10 +377,10 @@ actor _DeleteSecond is (TokenReceiver & RevocationReceiver)
   var _first: (AccessToken | None) = None
   var _second: (AccessToken | None) = None
 
-  new create(h: TestHelper) =>
+  new create(h: TestHelper, epoch: StreamEpoch) =>
     _h = h
-    _registry = SessionRegistry
-    _registry.issue("@alice:example.test", this)
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
 
   be token_issued(token: AccessToken, device: DeviceId) =>
     match _first
@@ -359,7 +390,7 @@ actor _DeleteSecond is (TokenReceiver & RevocationReceiver)
         earlier.reveal(), recover val [device.string()] end, this)
     else
       _first = token
-      _registry.issue("@alice:example.test", this)
+      _registry.issue("@alice:example.test", None, this)
     end
 
   be token_refused() =>
@@ -392,7 +423,11 @@ class \nodoc\ iso _TestDevicesListsOnlyYourOwn is UnitTest
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    _ListDevices(h)
+    try
+      _ListDevices(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
 
 actor _ListDevices is (TokenReceiver & DeviceReceiver)
   let _h: TestHelper
@@ -401,10 +436,10 @@ actor _ListDevices is (TokenReceiver & DeviceReceiver)
   var _alice: (AccessToken | None) = None
   let _alice_devices: Array[String] = _alice_devices.create()
 
-  new create(h: TestHelper) =>
+  new create(h: TestHelper, epoch: StreamEpoch) =>
     _h = h
-    _registry = SessionRegistry
-    _registry.issue("@alice:example.test", this)
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
 
   be token_issued(token: AccessToken, device: DeviceId) =>
     _issued = _issued + 1
@@ -416,6 +451,7 @@ actor _ListDevices is (TokenReceiver & DeviceReceiver)
       _registry.issue(
         if _issued == 1 then "@alice:example.test" else "@bob:example.test"
         end,
+        None,
         this)
     else
       match _alice
@@ -456,17 +492,21 @@ class \nodoc\ iso _TestATokenResolvesToItsOwnDevice is UnitTest
     h.long_test(10_000_000_000)
     h.expect_action("first token keeps its device")
     h.expect_action("second token keeps its device")
-    _PairDevices(h)
+    try
+      _PairDevices(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
 
 actor _PairDevices is TokenReceiver
   let _h: TestHelper
   let _registry: SessionRegistry
   var _issued: USize = 0
 
-  new create(h: TestHelper) =>
+  new create(h: TestHelper, epoch: StreamEpoch) =>
     _h = h
-    _registry = SessionRegistry
-    _registry.issue("@alice:example.test", this)
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
 
   be token_issued(token: AccessToken, device: DeviceId) =>
     _issued = _issued + 1
@@ -480,7 +520,7 @@ actor _PairDevices is TokenReceiver
       token.reveal(), _ExpectDevice(_h, action, device.string()))
 
     if _issued == 1 then
-      _registry.issue("@alice:example.test", this)
+      _registry.issue("@alice:example.test", None, this)
     end
 
   be token_refused() =>
@@ -500,13 +540,25 @@ actor _ExpectDevice is UserReceiver
     _action = action
     _expected = expected
 
-  be token_resolved(user_id: String, device: DeviceId) =>
-    if device.string() == _expected then
+  be token_resolved(session: Session) =>
+    let seen: String = session.device.string()
+    if seen == _expected then
       _h.complete_action(_action)
     else
-      _h.log("resolved to " + device.string() + ", expected " + _expected)
+      _h.log("resolved to " + seen + ", expected " + _expected)
       _h.fail_action(_action)
     end
 
   be token_rejected() =>
     _h.fail_action(_action)
+
+primitive _AnyEpoch
+  """
+  A stream epoch, for tests that need a registry.
+  """
+  fun apply(): StreamEpoch ? =>
+    match MakeStreamEpoch()
+    | let e: StreamEpoch => e
+    else
+      error
+    end
