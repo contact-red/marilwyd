@@ -7,7 +7,8 @@ web client — one origin, one process.
 
 A skeleton, but a working one: Element loads, a local user signs in, the
 token that comes back can be spent, and the client settles into a real sync
-loop instead of retrying. Thirteen Matrix endpoints, listed below.
+loop instead of retrying, and rooms carry messages between clients.
+Eighteen Matrix endpoints, listed below.
 
 One account can be signed in from several clients at once — a browser, a
 phone, a desktop — each with its own device id and its own token, and each
@@ -168,7 +169,12 @@ public.
 | POST | `/_matrix/client/v3/logout` | ends the calling session |
 | GET | `/_matrix/client/v3/devices` | the account's devices |
 | POST | `/_matrix/client/v3/delete_devices` | ends named sessions |
-| GET | `/_matrix/client/v3/sync` | always empty; holds up to 25 s |
+| GET | `/_matrix/client/v3/sync` | a device's events; holds up to 25 s |
+| POST | `/_matrix/client/v3/createRoom` | makes a room |
+| POST | `/_matrix/client/v3/join/:roomIdOrAlias` | joins one |
+| POST | `/_matrix/client/v3/rooms/:roomId/leave` | leaves one |
+| PUT | `/_matrix/client/v3/rooms/:roomId/send/:type/:txn` | sends an event |
+| GET | `/_matrix/client/v3/rooms/:roomId/state` | a room's current state |
 | GET | `/_matrix/client/v3/pushrules/` | an empty ruleset |
 | POST | `/_matrix/client/v3/user/:userId/filter` | a constant `filter_id` |
 | GET | `/_matrix/client/v3/user/:userId/filter/:filterId` | an empty filter |
@@ -184,13 +190,27 @@ not covered: a browser preflight needs CORS headers, which an
 than an oversight.
 
 `/sync` holds a request open for as long as the client asked, up to 25
-seconds. Answering an empty sync immediately is legal and catastrophic: the
-client re-asks at once, measured at 36 syncs a second. The cap sits under
-hobby's own 30-second handler timeout, which would otherwise answer `504`
-with no `errcode` and put the client into a permanent reconnect flap.
+seconds, and answers the moment an event arrives for that device. Answering
+an empty sync immediately is legal and catastrophic: the client re-asks at
+once, measured at 36 syncs a second. The cap sits under hobby's own
+30-second handler timeout, which would otherwise answer `504` with no
+`errcode` and put the client into a permanent reconnect flap.
 
-Sessions live in memory only, so a restart logs everyone out. That is
-deliberate: there is nothing worth persisting until rooms and events exist.
+A first sync — one carrying no position — is answered at once whatever
+timeout it asks for, because a client with no position is owed everything
+it can already see.
+
+Sessions live in memory only, so a restart logs everyone out — and takes
+every room with it, since rooms are held the same way.
+
+**A room keeps no messages.** It knows who is in it and what its current
+state says, and fans each event out to its members as it arrives. A client
+that was not a member when a message was sent will never see it, and one
+that leaves and rejoins is told nothing about the gap. What is held for a
+client that is offline is held by that client's own device, not by the
+room, and is bounded per device rather than per room. Replaying history to
+a rejoiner, if it is ever wanted, belongs to a separate actor that
+subscribes to rooms as any member does.
 
 Each login mints its own device, so the same account signed in twice has two
 sessions that end independently. `GET /devices` lists them and

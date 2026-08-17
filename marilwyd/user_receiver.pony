@@ -1,10 +1,11 @@
 interface tag UserReceiver
   """
-  Something waiting to be told who a token belongs to.
+  Something waiting to be told whose token it is holding.
   """
-  be token_resolved(user_id: String, device: DeviceId)
+  be token_resolved(session: Session)
     """
-    The token belongs to `user_id`, signed in on `device`.
+    The token belongs to this session — a user, one of their devices, and
+    the actors that own each.
     """
 
   be token_rejected()

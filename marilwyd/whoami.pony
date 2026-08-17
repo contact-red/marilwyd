@@ -31,8 +31,10 @@ actor _WhoamiHandler is (hobby.HandlerReceiver & UserReceiver)
       _respond(stallion.StatusUnauthorized, MissingToken())
     end
 
-  be token_resolved(user_id: String, device: DeviceId) =>
-    _respond(stallion.StatusOK, WhoamiSuccess(user_id, device))
+  be token_resolved(session: Session) =>
+    _respond(
+      stallion.StatusOK,
+      WhoamiSuccess(session.user_id, session.device))
 
   be token_rejected() =>
     _respond(stallion.StatusUnauthorized, UnknownToken())

@@ -25,18 +25,41 @@ actor SessionRegistry
   still constant-time in the part that matters.
   """
   embed _sessions: Array[_Session] = _sessions.create()
+  embed _users: Map[String, User tag] = _users.create()
+  embed _streams: Map[String, Map[String, Device tag]] = _streams.create()
+  let _epoch: StreamEpoch
 
-  be issue(user_id: String, receiver: TokenReceiver tag) =>
+  new create(epoch: StreamEpoch) =>
+    _epoch = epoch
+
+  be issue(
+    user_id: String,
+    requested: (String | None),
+    receiver: TokenReceiver tag)
+  =>
     """
-    Mint a token and a device for `user_id` and remember both.
+    Mint a token for `user_id`, on the device they asked for or a new one.
+
+    A client that signs back in naming the device id it stored gets that
+    device's actor back, and with it whatever was held for it while it was
+    away. Without this the buffer would be unreachable by construction —
+    kept for a device that could no longer prove it was that device. The
+    old token for that device stops working, which is what the
+    specification requires and what stops two tokens sharing one queue.
+
+    A requested id is honoured only within the authenticated account, so
+    the worst a client can do is disturb another of its owner's devices.
     """
-    match (MakeAccessToken(), MakeDeviceId())
+    match (MakeAccessToken(), _device_for(user_id, requested))
     | (let token: AccessToken, let device: DeviceId) =>
       // `user_id.clone()` is load-bearing. Under ORCA a foreign reference to
       // an object keeps its owning actor alive, so storing the caller's
       // String would pin the handler actor that minted it — and through that
       // handler, its connection and the request body, which holds the
       // plaintext password. Measured: ~143 kB retained per login, forever.
+      // A second login on the same device replaces the first, so the
+      // token that device was using stops resolving.
+      _forget_device(user_id, device)
       _sessions.push(_Session(token, user_id.clone(), device))
       receiver.token_issued(token, device)
     else
@@ -50,7 +73,14 @@ actor SessionRegistry
     """
     for session in _sessions.values() do
       if session.token.matches(supplied) then
-        receiver.token_resolved(session.user_id, session.device)
+        match _actors_for(session.user_id, session.device)
+        | (let user: User tag, let stream: Device tag) =>
+          receiver.token_resolved(
+            Session(session.user_id, session.device, user, stream))
+        else
+          // Unreachable: the actors are made when the session is.
+          receiver.token_rejected()
+        end
         return
       end
     end
@@ -159,6 +189,87 @@ actor SessionRegistry
         _remove(index)
         return
       end
+    end
+
+  fun ref _device_for(
+    user_id: String,
+    requested: (String | None))
+    : (DeviceId | NoSecureRandom)
+  =>
+    """
+    The device a login should use: the one it asked for if that account
+    already has it, otherwise a fresh one.
+
+    A requested id this account has never used is not adopted. Matrix
+    permits it, but it would make a device id client-chosen text rather
+    than something this server minted — and a device id keys a queue and
+    travels in URLs.
+    """
+    match requested
+    | let asked: String =>
+      try
+        for (id, _) in _streams(user_id)?.pairs() do
+          if id == asked then
+            return DeviceId._create(id.clone())
+          end
+        end
+      end
+    end
+    MakeDeviceId()
+
+  fun ref _actors_for(user_id: String, device: DeviceId)
+    : ((User tag, Device tag) | None)
+  =>
+    """
+    The actors for a session, made on first use.
+
+    A `User` outlives every one of its devices, so a room can hold one and
+    never learn that a device signed in or out.
+    """
+    let user =
+      try
+        _users(user_id)?
+      else
+        let fresh = User(user_id.clone())
+        _users(user_id) = fresh
+        fresh
+      end
+
+    let held =
+      try
+        _streams(user_id)?
+      else
+        let fresh = Map[String, Device tag]
+        _streams(user_id) = fresh
+        fresh
+      end
+
+    let key: String = device.string()
+    let stream =
+      try
+        held(key)?
+      else
+        let fresh = Device(device, _epoch)
+        held(key) = fresh
+        user.attach(key, fresh)
+        fresh
+      end
+
+    (user, stream)
+
+  fun ref _forget_device(user_id: String, device: DeviceId) =>
+    """
+    Drop any session on this device, so one device never holds two tokens.
+    """
+    var index: USize = 0
+    for session in _sessions.values() do
+      if (session.user_id == user_id)
+        and (session.device.string() == device.string())
+      then
+        _remove(index)
+        return
+      end
+      index = index + 1
     end
 
   fun ref _remove(index: USize): Bool =>

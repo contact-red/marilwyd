@@ -65,6 +65,11 @@ session.
 | POST | `logout` | matrix-js-sdk calls it on sign-out |
 | GET | `devices` | Element's session manager lists from it |
 | POST | `delete_devices` | Element's session manager signs out with it |
+| POST | `createRoom` | Element sends more keys than marilwyd reads |
+| POST | `join/{roomIdOrAlias}` | |
+| POST | `rooms/{roomId}/leave` | |
+| PUT | `rooms/{roomId}/send/{type}/{txn}` | `txn` is routed and not read |
+| GET | `rooms/{roomId}/state` | |
 
 ## Defined by matrix-js-sdk, not yet reachable
 
@@ -78,10 +83,9 @@ no client calls while the two Element does use were missing.
 defined by matrix-js-sdk and never called by Element, which signs out
 through `POST /delete_devices` instead.
 
-**Rooms** — the largest family, all unreachable with no rooms:
-`POST /createRoom`, `GET /joined_rooms`, `POST /join/{roomIdOrAlias}`,
-and under `/rooms/{roomId}/`: `send/{eventType}/{txnId}`, `state`,
-`state/{eventType}/{stateKey}`, `messages`, `event/{eventId}`,
+**Rooms** — the rest of the family. `GET /joined_rooms` (a client learns
+its rooms from `/sync` instead), and under `/rooms/{roomId}/`:
+`state/{eventType}/{stateKey}`, `event/{eventId}`,
 `context/{eventId}`, `relations/{eventId}`, `threads`, `members`,
 `joined_members`, `invite`, `kick`, `ban`, `unban`, `leave`, `forget`,
 `typing/{userId}`, `receipt/{receiptType}/{eventId}`, `read_markers`,
@@ -94,6 +98,10 @@ the same scoped to a room, and `/user/{userId}/rooms/{roomId}/tags`.
 **Encryption beyond the gate** — `POST /keys/claim`,
 `POST /keys/signatures/upload`, `GET /keys/changes`, `POST /room_keys/version`,
 `GET`/`PUT /room_keys/keys`.
+
+`GET /rooms/{roomId}/messages` is not on that list and will not be: a room
+keeps no messages, so there is nothing for it to page through. It would
+need an actor that subscribes to rooms and stores what it sees.
 
 **Media** — `POST /upload`, and the download and thumbnail endpoints under
 the media namespace.

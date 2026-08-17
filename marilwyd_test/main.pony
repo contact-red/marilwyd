@@ -64,7 +64,7 @@ actor Main is TestList
     test(_TestSyncWithoutTokenIsUnauthorized)
     test(_TestSyncRejectsAnUnknownToken)
     test(_TestSyncAnswersAtOnceWithoutATimeout)
-    test(_TestSyncHoldsForTheRequestedTimeout)
+    test(_TestFirstSyncDoesNotHold)
     test(_TestSyncRefusesAMalformedTimeout)
     test(_TestPushRulesRequiresAToken)
     test(_TestPushRulesServesARuleset)
@@ -102,6 +102,27 @@ actor Main is TestList
     test(_TestDeleteDevicesRequiresAToken)
     test(_TestDeleteDevicesAcceptsAList)
     test(_TestDeleteDevicesRefusesABadBody)
+    test(_TestRoomStateIsLastWins)
+    test(_TestPendingKeepsOnlyItsLimit)
+    test(_TestPendingRemembersItDropped)
+    test(_TestPendingSharesItsEvents)
+    test(_TestPendingVersionsAreIndependent)
+    test(_TestPendingHandlesAnImpossiblePosition)
+    test(_TestAnEventWakesAParkedDevice)
+    test(_TestAParkedDeviceWaitsForItsEvent)
+    test(_TestRoomReachesItsMembersDevices)
+    test(_TestRoomReachesNobodyOutsideIt)
+    test(_TestSendingToARoomYouAreNotInIsRefused)
+    test(_TestAMemberMaySend)
+    test(_TestAWokenSyncCarriesNoState)
+    test(_TestCreateRoomWithoutATokenIsRefused)
+    test(_TestCreateRoomAnswersARoomId)
+    test(_TestSendingToARoomThatDoesNotExist)
+    test(_TestCreateThenSend)
+    test(_TestCreateThenReadState)
+    test(_TestAMalformedRoomIdIsRefused)
+    test(_TestEventContentMustBeAnObject)
+    test(_TestRoomMembershipComesAndGoes)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
@@ -194,7 +215,17 @@ primitive _Serve
         return
       end
 
-    match \exhaustive\ Routes(config, SessionRegistry)
+    let epoch =
+      match MakeStreamEpoch()
+      | let e: StreamEpoch => e
+      else
+        h.fail("the CSPRNG is unavailable")
+        h.complete(false)
+        return
+      end
+
+    match \exhaustive\ Routes(
+      config, SessionRegistry(epoch), RoomDirectory(config.homeserver), epoch)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =
@@ -281,7 +312,17 @@ primitive _ServeAuthed
         return
       end
 
-    match \exhaustive\ Routes(config, SessionRegistry)
+    let epoch =
+      match MakeStreamEpoch()
+      | let e: StreamEpoch => e
+      else
+        h.fail("the CSPRNG is unavailable")
+        h.complete(false)
+        return
+      end
+
+    match \exhaustive\ Routes(
+      config, SessionRegistry(epoch), RoomDirectory(config.homeserver), epoch)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =
@@ -328,6 +369,108 @@ primitive _ServeAuthed
     | let e: hobby.ConfigError =>
       h.fail(e.message)
       h.complete(false)
+    end
+
+primitive _ServeAuthedChain
+  """
+  Log in, send one authenticated request, then send a second built from the
+  first's response.
+
+  Three connections against one listener. `_ServeAuthed` tops out at
+  login-then-one-request, which cannot express anything a room needs — a
+  room has to exist before it can be sent to, and its id only comes back in
+  the response that made it.
+  """
+  fun apply(
+    h: TestHelper,
+    first: {(String): String} val,
+    second: {(String, String): String} val,
+    check: {(String)} val)
+  =>
+    h.long_test(10_000_000_000)
+
+    let config =
+      match _TestConfig(h)
+      | let c: Config => c
+      else
+        return
+      end
+
+    let epoch =
+      match MakeStreamEpoch()
+      | let e: StreamEpoch => e
+      else
+        h.fail("the CSPRNG is unavailable")
+        h.complete(false)
+        return
+      end
+
+    match \exhaustive\ Routes(
+      config, SessionRegistry(epoch), RoomDirectory(config.homeserver), epoch)
+    | let built: hobby.BuiltApplication =>
+      let connect_auth = lori.TCPConnectAuth(h.env.root)
+      let notify =
+        _TestNotify(
+          {(port, server)(connect_auth, first, second, check, h) =>
+            _TestClient(
+              connect_auth,
+              port,
+              _Post(
+                "/_matrix/client/v3/login",
+                _PasswordLogin(_TestUser.password())),
+              server,
+              {(login)(connect_auth, port, first, second, check, h, server) =>
+                match _TokenFrom(login)
+                | let token: String =>
+                  _TestClient(
+                    connect_auth,
+                    port,
+                    first(token),
+                    server,
+                    {(one)(connect_auth, port, second, check, h, server,
+                      token) =>
+                      _TestClient(
+                        connect_auth,
+                        port,
+                        second(token, one),
+                        server,
+                        {(two)(check, h) =>
+                          check(two); h.complete(true)
+                        } val)
+                    } val
+                    where close_server = false)
+                else
+                  h.fail("login did not yield a token: " + login)
+                  h.complete(false)
+                  server.dispose()
+                end
+              } val
+              where close_server = false)
+          } val)
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
+    | let e: hobby.ConfigError =>
+      h.fail(e.message)
+      h.complete(false)
+    end
+
+primitive _RoomFrom
+  """
+  Pull `room_id` out of a create or join response.
+  """
+  fun apply(response: String): (String | None) =>
+    let key = "\"room_id\":\""
+    try
+      let start = response.find(key)? + key.size().isize()
+      let finish = response.find("\"", start)?
+      response.substring(start, finish)
+    else
+      None
     end
 
 primitive _TokenFrom
