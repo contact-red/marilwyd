@@ -67,20 +67,16 @@ read -rs PASSWORD
 printf '%s' "$PASSWORD" | marilwyd hash-password alice
 ```
 
-Collect the entries into a file:
+`hash-password` prints a YAML sequence element. Collect them under
+`users:`:
 
-```json
-{
-  "users": [
-    {
-      "localpart": "alice",
-      "algorithm": "pbkdf2-sha256",
-      "iterations": 600000,
-      "salt": "<32 hex characters from hash-password>",
-      "hash": "<64 hex characters from hash-password>"
-    }
-  ]
-}
+```yaml
+users:
+  - localpart: alice
+    algorithm: pbkdf2-sha256
+    iterations: 600000
+    salt: "<32 hex characters from hash-password>"
+    hash: "<64 hex characters from hash-password>"
 ```
 
 Each entry carries its own iteration count, so raising the figure applies to
@@ -89,11 +85,8 @@ fixed and checked at startup: a truncated paste is refused rather than
 quietly weakening the credential.
 
 Adding a second user means editing the file — `hash-password` prints one
-entry, it does not append. The `users` array holds them all:
-
-```json
-{ "users": [ { "localpart": "alice", … }, { "localpart": "bob", … } ] }
-```
+entry, it does not append. Every entry sits under the one `users:` key, and
+YAML allows comments, so a rotation date next to an entry is free.
 
 Keep the file readable only by its owner; marilwyd refuses to start
 otherwise, and refuses a file placed inside `--asset-root`, where everything
@@ -105,7 +98,7 @@ is served to anyone who can reach the socket.
 marilwyd serve \
   --server-name localhost:8008 \
   --asset-root build/element \
-  --credentials credentials.json
+  --credentials credentials.yaml
 ```
 
 | Flag | Required | Default |

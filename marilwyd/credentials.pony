@@ -1,7 +1,7 @@
 use "collections"
 use "files"
-use "json"
 use "ssl/crypto"
+use "yaml"
 
 primitive Pbkdf2Iterations
   """
@@ -108,6 +108,11 @@ primitive ReadCredentials
   It holds derived hashes, never passwords. The file is still the
   offline-attack surface for every account: recovering a password from an
   entry costs a PBKDF2 search, and no more than that.
+
+  Parsing and shape are the `yaml` package's; what a value has to *be* is
+  marilwyd's, and stays here. The split is deliberate — the library reports
+  a missing key or a number that will not fit a `U32` better than hand
+  -written code did, and has no opinion on what an iteration count is for.
   """
   fun apply(path: FilePath): (Credentials | StartupError) =>
     """
@@ -125,31 +130,25 @@ primitive ReadCredentials
           path.path + " cannot be read")
       end
 
-    let doc =
-      match JsonParser.parse(consume text)
-      | let d: JsonObject => d
-      | let e: JsonParseError =>
+    // Bounded well below the defaults. This document is a flat list of
+    // five-field entries, so nothing legitimate approaches either figure,
+    // and the file is read before anything else runs.
+    let raw =
+      match \exhaustive\ YamlLoad[Array[_RawEntry] val](
+        consume text,
+        {(c) => c("users").sequence[_RawEntry](_RawEntryOf) }
+        where max_depth = 8, max_nodes = 100_000)
+      | let entries: Array[_RawEntry] val => entries
+      | let f: YamlFailure =>
+        // Safe to render: no node type in `yaml` is `Stringable` and its
+        // errors carry no document bytes, so this cannot spill a hash into
+        // a startup message.
         return StartupError(
-          "credentials-malformed",
-          path.path + " is not valid JSON: "
-            + e.message)
-      else
-        return StartupError(
-          "credentials-malformed",
-          path.path + " is not a JSON object")
-      end
-
-    let entries =
-      try
-        doc("users")? as JsonArray
-      else
-        return StartupError(
-          "credentials-malformed",
-          path.path + " has no \"users\" array")
+          "credentials-malformed", path.path + ": " + f.string())
       end
 
     let users = recover trn Map[String, Credential] end
-    for (i, entry) in entries.pairs() do
+    for (i, entry) in raw.pairs() do
       let where': String = path.path + " users[" + i.string() + "]"
       match \exhaustive\ _Entry(entry, where')
       | let c: Credential =>
@@ -172,69 +171,82 @@ primitive ReadCredentials
 
     Credentials._create(consume users)
 
+class val _RawEntry
+  """
+  One entry as the file spells it, before marilwyd decides whether it is a
+  credential.
+
+  Every field is the text or number that was there. Nothing here is
+  validated, which is the point: binding and judging are separate passes so
+  a shape problem and a value problem cannot be reported as each other.
+  """
+  let localpart: String
+  let algorithm: String
+  let iterations: U32
+  let salt: String
+  let hash: String
+
+  new val create(
+    localpart': String,
+    algorithm': String,
+    iterations': U32,
+    salt': String,
+    hash': String)
+  =>
+    localpart = localpart'
+    algorithm = algorithm'
+    iterations = iterations'
+    salt = salt'
+    hash = hash'
+
+primitive _RawEntryOf
+  """
+  Bind one `users` element.
+
+  `int[U32]` rather than a number widened by hand: a count that will not fit
+  is a problem the library reports, where narrowing it here would wrap and
+  quietly unstretch the entry.
+  """
+  fun apply(c: YamlView ref): _RawEntry =>
+    _RawEntry(
+      c("localpart").text(),
+      c("algorithm").text(),
+      c("iterations").int[U32](),
+      c("salt").text(),
+      c("hash").text())
+
 primitive _Entry
   """
-  Turn one element of the `users` array into a `Credential`.
+  Decide whether one bound entry is a credential.
   """
-  fun apply(entry: JsonValue, where': String): (Credential | StartupError) =>
-    let o =
-      match entry
-      | let j: JsonObject => j
-      else
-        return StartupError(
-          "credentials-malformed", where' + " is not an object")
-      end
-
-    let localpart =
-      match \exhaustive\ _Field(o, "localpart", where')
-      | let s: String => s
-      | let e: StartupError => return e
-      end
-
-    match Localpart.check(localpart)
+  fun apply(entry: _RawEntry, where': String): (Credential | StartupError) =>
+    match Localpart.check(entry.localpart)
     | let e: String =>
       return StartupError("credentials-localpart", where' + ": " + e)
     end
 
-    let algorithm =
-      match \exhaustive\ _Field(o, "algorithm", where')
-      | let s: String => s
-      | let e: StartupError => return e
-      end
-
     // Named in the file so a future entry can carry a different one and be
     // rejected rather than verified with the wrong primitive.
-    if algorithm != "pbkdf2-sha256" then
+    if entry.algorithm != "pbkdf2-sha256" then
       return StartupError(
         "credentials-algorithm",
-        where' + ": unsupported algorithm " + algorithm)
+        where' + ": unsupported algorithm " + entry.algorithm)
     end
 
-    // Range-checked before narrowing: `n.u32()` wraps silently, so a count
-    // above 2^32 would become a small one and quietly unstretch the entry.
-    let iterations =
-      match o.get_or_else("iterations", None)
-      | let n: I64
-        if (n >= Pbkdf2MinIterations().i64())
-          and (n <= I32.max_value().i64())
-      =>
-        n.u32()
-      | let n: I64 =>
-        return StartupError(
-          "credentials-iterations",
-          where' + ": iterations must be between "
-            + Pbkdf2MinIterations().string() + " and "
-            + I32.max_value().string() + ", not " + n.string())
-      else
-        return StartupError(
-          "credentials-malformed",
-          where' + ": iterations must be a number")
-      end
+    if entry.iterations < Pbkdf2MinIterations() then
+      return StartupError(
+        "credentials-iterations",
+        where' + ": iterations must be at least "
+          + Pbkdf2MinIterations().string() + ", not "
+          + entry.iterations.string())
+    end
 
     let salt =
-      match \exhaustive\ _HexField(o, "salt", where')
+      match _FromHex(entry.salt)
       | let b: Array[U8] val => b
-      | let e: StartupError => return e
+      else
+        return StartupError(
+          "credentials-malformed", where' + ": salt is not hex")
       end
 
     if salt.size() < Pbkdf2SaltLength() then
@@ -245,9 +257,11 @@ primitive _Entry
     end
 
     let hash =
-      match \exhaustive\ _HexField(o, "hash", where')
+      match _FromHex(entry.hash)
       | let b: Array[U8] val => b
-      | let e: StartupError => return e
+      else
+        return StartupError(
+          "credentials-malformed", where' + ": hash is not hex")
       end
 
     // The length matters, not just the encoding. A short hash is not a
@@ -263,36 +277,9 @@ primitive _Entry
     end
 
     Credential(
-      localpart,
-      iterations
+      entry.localpart,
+      entry.iterations
       where salt' = salt, hash' = hash)
-
-primitive _Field
-  fun apply(o: JsonObject, name: String, where': String)
-    : (String | StartupError)
-  =>
-    match o.get_or_else(name, None)
-    | let s: String => s
-    else
-      StartupError(
-        "credentials-malformed", where' + ": missing \"" + name + "\"")
-    end
-
-primitive _HexField
-  fun apply(o: JsonObject, name: String, where': String)
-    : (Array[U8] val | StartupError)
-  =>
-    match \exhaustive\ _Field(o, name, where')
-    | let s: String =>
-      match _FromHex(s)
-      | let b: Array[U8] val => b
-      else
-        StartupError(
-          "credentials-malformed",
-          where' + ": \"" + name + "\" is not hex")
-      end
-    | let e: StartupError => e
-    end
 
 primitive _FromHex
   """

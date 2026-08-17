@@ -81,7 +81,7 @@ build/element: $(ELEMENT_TARBALL)
 #
 # CREDENTIALS is a file of password hashes; generate entries with
 #   printf '%s' "$$PASSWORD" | build/marilwyd hash-password alice
-CREDENTIALS ?= credentials.json
+CREDENTIALS ?= credentials.yaml
 
 run: build/marilwyd build/element
 	build/marilwyd serve \
@@ -91,7 +91,7 @@ run: build/marilwyd build/element
 
 clean:
 	rm -rf build/marilwyd build/marilwyd_test build/marilwyd.o \
-	  build/marilwyd_test.o build/test-asset-root build/test-credentials*.json
+	  build/marilwyd_test.o build/test-asset-root build/test-credentials*.yaml
 
 realclean:
 	rm -rf build

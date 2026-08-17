@@ -4,6 +4,10 @@
     {
       "locator": "github.com/ponylang/hobby.git",
       "version": "0.10.0"
+    },
+    {
+      "locator": "github.com/contact-red/yaml.git",
+      "version": "0.1.0"
     }
   ],
   "info": {

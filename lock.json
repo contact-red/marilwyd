@@ -1,6 +1,10 @@
 {
   "locks": [
     {
+      "locator": "github.com/contact-red/yaml.git",
+      "revision": "0.1.0"
+    },
+    {
       "locator": "github.com/ponylang/lori.git",
       "revision": "0.18.1"
     },

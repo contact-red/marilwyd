@@ -280,7 +280,7 @@ primitive _Configure
     server_name: String,
     asset_root: String,
     bind_port: (String | None),
-    credentials: String = "build/test-credentials.json")
+    credentials: String = "build/test-credentials.yaml")
     : (Config | StartupError)
   =>
     """
