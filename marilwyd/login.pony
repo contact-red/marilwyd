@@ -132,6 +132,20 @@ primitive _ParseLogin
   sends in some flows.
   """
   fun apply(body: Array[U8] val): (_LoginRequest | _LoginRefusal) =>
+    // Checked before anything is built from the body. `/login` needs no
+    // credential to reach, and the parser allocates in proportion to what
+    // it is given, so an unbounded body here is an unauthenticated way to
+    // buy memory. See `SECURITY.md`.
+    match \exhaustive\ CheckLoginShape(body)
+    | LoginBodyTooLarge =>
+      return _LoginRefusal(
+        stallion.StatusBadRequest, "M_TOO_LARGE", LoginBodyTooLarge.message())
+    | LoginBodyTooDeep =>
+      return _LoginRefusal(
+        stallion.StatusBadRequest, "M_TOO_LARGE", LoginBodyTooDeep.message())
+    | None => None
+    end
+
     let text = String.from_array(body)
 
     let o =
