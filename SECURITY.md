@@ -127,20 +127,26 @@ attempts took an unrelated static request from 1 ms to over a second. On a
 many-core host it is not noticeable; on a one or two vCPU VPS it is a
 denial-of-service surface.
 
-Memory is remotely growable, through the parse rather than the derivation.
-`_ParseLogin` hands the request body to `JsonParser`, which allocates a
-container frame per level of nesting and bounds neither depth nor total
-allocation. Measured against the shipped binary from a fresh process, 100
-concurrent deeply-nested bodies of 64 kB each — 6.4 MB of traffic — took RSS
-from 8.9 MB to 901 MB, and it does not come back. The request is refused with
-`400` before any derivation runs, so this costs an attacker less than a real
-login attempt does.
+Memory was remotely growable through the parse rather than the derivation,
+and is now bounded. `JsonParser` allocates a container frame per level of
+nesting and takes no limits, so a body's parse cost was proportional to its
+length — and `/login` needs no credential to reach, and is refused with
+`400` before any derivation runs, so it cost an attacker less than a real
+login attempt. Measured on the shipped binary, 100 concurrent 64 kB nested
+bodies over three rounds took RSS from 9 MB to 200 MB.
 
-The 64 kB body limit caps the per-request cost, and is why the figure is
-901 MB rather than sixteen times that. It does not cap the total.
-A depth or size check before `JsonParser.parse` would; there is no limits API
-on `JsonParser` in ponyc 0.68.0, so it has to be a length check on the body
-or a `JsonTokenNotify` that aborts past a depth.
+`_ParseLogin` now refuses a body over `MaxLoginBody()` or nested deeper
+than `MaxLoginDepth()` before the parser builds anything from it. The size
+limit bounds one body's cost; the depth limit bounds its shape, so the
+frame count no longer follows the byte count. Both are checked in a
+streaming pre-pass, since ponyc 0.68.0's `JsonParser` takes no limits and
+only its token-level counterpart can be stopped mid-document.
+
+Measured after: the same load reaches 30 MB, and a maximally nested body
+now costs slightly *less* than a flat body of the same length at four times
+the concurrency — 32 MB against 38 MB. What remains is the cost of the
+connections themselves, which is the unbounded-concurrency surface
+described above rather than anything specific to the parse.
 
 ## Cost of a held sync
 
