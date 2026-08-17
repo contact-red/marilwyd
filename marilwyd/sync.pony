@@ -154,7 +154,7 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
       _respond(stallion.StatusUnauthorized, MissingToken())
     end
 
-  be token_resolved(user_id: String) =>
+  be token_resolved(user_id: String, device: DeviceId) =>
     // `dispose` can arrive before this: a client that connects, sends, and
     // resets gets its connection torn down while the registry is still
     // being asked. Without this check the handler would arm a deadline for

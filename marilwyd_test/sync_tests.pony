@@ -456,3 +456,163 @@ class \nodoc\ iso _TestMatrixRootAnswersEveryMethod is UnitTest
         h.assert_false(r.contains("Method Not Allowed"), r)
         _AssertErrcode(h, r, "M_UNRECOGNIZED")
       } val)
+
+// --------------------------------------------------- devices and logout
+class \nodoc\ iso _TestWhoamiReportsTheDevice is UnitTest
+  """
+  With several clients signed in as one account, this is the only way a
+  client can find out which session its own token belongs to.
+  """
+  fun name(): String => "whoami/a session is told its device id"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/account/whoami",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(r.contains("device_id"), r)
+        _AssertJSONKey(h, r, "user_id", "@alice:example.test")
+      } val)
+
+class \nodoc\ iso _TestLogoutEndsTheSession is UnitTest
+  """
+  Answers `{}` and takes the token with it. That the token is really gone is
+  asserted at the registry, where a second request can be made without a
+  second connection — see `sessions/revoking one session spares the other`.
+  """
+  fun name(): String => "logout/a session can end itself"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/logout",
+          "{}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(r.contains("{}"), r)
+      } val)
+
+class \nodoc\ iso _TestLogoutWithoutATokenIsRefused is UnitTest
+  fun name(): String => "logout/no token is M_MISSING_TOKEN"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Post("/_matrix/client/v3/logout", "{}"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestLogoutRejectsAnUnknownToken is UnitTest
+  """
+  Not 200. A client that is told its logout succeeded will discard a token
+  that in fact was never live, and stop being able to tell the difference.
+  """
+  fun name(): String => "logout/an unknown token is M_UNKNOWN_TOKEN"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Post(
+        "/_matrix/client/v3/logout",
+        "{}",
+        "Authorization: Bearer nosuchtoken\r\n"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_UNKNOWN_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestDevicesRequiresAToken is UnitTest
+  fun name(): String => "devices/listing without a token is refused"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/_matrix/client/v3/devices"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestDevicesListsTheCallersDevice is UnitTest
+  """
+  One session, so the list holds exactly the device login handed back.
+  """
+  fun name(): String => "devices/a session sees its own device listed"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/devices",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(r.contains("device_id"), r)
+        h.assert_true(r.contains("devices"), r)
+      } val)
+
+class \nodoc\ iso _TestDeleteDevicesRequiresAToken is UnitTest
+  fun name(): String => "devices/bulk delete without a token is refused"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Post("/_matrix/client/v3/delete_devices", "{\"devices\":[]}"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestDeleteDevicesAcceptsAList is UnitTest
+  """
+  An id nobody holds still succeeds: deleting a device that is already gone
+  is the state the caller asked for.
+  """
+  fun name(): String => "devices/bulk delete of an absent device succeeds"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/delete_devices",
+          "{\"devices\":[\"0123456789\"]}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+      } val)
+
+class \nodoc\ iso _TestDeleteDevicesRefusesABadBody is UnitTest
+  """
+  The only new error vocabulary in this change, and it is reachable: a body
+  with no `devices` array cannot be acted on.
+  """
+  fun name(): String => "devices/bulk delete refuses a body without devices"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/delete_devices",
+          "{\"nope\":1}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
+        _AssertErrcode(h, r, "M_BAD_JSON")
+      } val)

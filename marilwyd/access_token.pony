@@ -45,22 +45,6 @@ primitive MakeAccessToken
       NoSecureRandom
     end
 
-primitive MakeDeviceId
-  """
-  Mint a device identifier from the CSPRNG.
-
-  A device id is a public label — it travels in login responses and in the
-  events a client sends — so it is a plain `String`, not an `AccessToken`.
-  Minting one through the token type would put a value that is meant to be
-  printed behind a type that exists to stop values being printed.
-  """
-  fun apply(): (String | NoSecureRandom) =>
-    try
-      ToHexString(RandBytes(5)?)
-    else
-      NoSecureRandom
-    end
-
 primitive NoSecureRandom
   """
   The CSPRNG could not produce secure bytes. Every caller must fail closed:

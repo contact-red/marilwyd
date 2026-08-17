@@ -102,9 +102,52 @@ primitive LoginSuccess
 primitive WhoamiSuccess
   """
   The body of `GET /_matrix/client/v3/account/whoami`.
+
+  `device_id` is optional in the specification and reported here. A client
+  that holds a token but not the login response it arrived in has no other
+  way to learn which of an account's sessions the token belongs to.
   """
-  fun apply(user_id: String): String =>
-    JsonPrinter.print(JsonObject.update("user_id", user_id))
+  fun apply(user_id: String, device: DeviceId): String =>
+    JsonPrinter.print(JsonObject
+      .update("user_id", user_id)
+      .update("device_id", device.string()))
+
+primitive ExpiredToken
+  """
+  The body for a token that is not live, where the caller was trying to
+  stop being signed in.
+
+  `UnknownToken` without `soft_logout`. That flag asks a client to sign in
+  again and keep its local state, which is right when a session ended
+  underneath a client and wrong when the client asked for it to end.
+  """
+  fun apply(): String =>
+    MatrixError("M_UNKNOWN_TOKEN", "Unrecognised access token")
+
+primitive DeviceList
+  """
+  The body of `GET /_matrix/client/v3/devices`.
+
+  Only `device_id` is required of each entry. marilwyd records no display
+  name, no last-seen address and no last-seen time, so it reports none:
+  login ignores `initial_device_display_name`, and inventing values a
+  client would show to a person is worse than an unnamed session.
+  """
+  fun apply(found: Array[DeviceId] val): String =>
+    var listed = JsonArray
+    for device in found.values() do
+      listed = listed.push(JsonObject.update("device_id", device.string()))
+    end
+    JsonPrinter.print(JsonObject.update("devices", listed))
+
+primitive LogoutSuccess
+  """
+  The body of `POST /_matrix/client/v3/logout` and of deleting devices.
+
+  The specification defines an empty object for both; there is nothing a
+  client needs beyond the status.
+  """
+  fun apply(): String => JsonPrinter.print(JsonObject)
 
 primitive EmptySync
   """

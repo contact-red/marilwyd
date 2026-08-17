@@ -75,9 +75,38 @@ one placed inside `--asset-root`, where every file is served unauthenticated.
 
 ## Revocation
 
-Tokens do not expire and there is no logout endpoint. Restarting is the only
-revocation, and it revokes every session at once, because sessions are held in
-memory and nothing else removes one.
+Tokens do not expire on their own. A session ends when its own client calls
+`POST /logout`, when another of that account's clients deletes its device, or
+when the server restarts — and a restart still ends every session at once,
+because sessions are held in memory.
+
+One session is one device, so revocation is per-client: signing out on a
+phone leaves a desktop signed in. Deleting devices is scoped to the token's
+own user, because a device id is a public label rather than a secret — and
+once the crypto endpoints publish device ids to everyone sharing a room,
+naming one stops requiring a guess. The ownership check is the whole
+barrier, not a second one behind the identifier's entropy.
+
+Deleting answers success whether or not a named device existed, so the
+response cannot be used to discover which ids are in use. The scan that
+looks for it is not constant-time, so its duration can still distinguish
+one of your own devices from an absent one; that discloses nothing an
+account cannot already list about itself.
+
+Revocation is not instant for a client mid-poll: a `/sync` already being
+held answers its empty document up to `MaxSyncWait()` later, and the
+request after that is the first one refused.
+
+Deleting a device deviates from the specification in one way: Matrix defines
+that endpoint as requiring user-interactive authentication, and marilwyd has
+none. The bearer token is the whole check. That is weaker than a conformant
+server against an attacker who already holds a token, and no weaker against
+one who does not.
+
+A session whose token nobody holds any more — a browser closed without
+signing out — can be ended by another of the account's clients, which is
+what `GET /devices` and `POST /delete_devices` are for. There is no
+`/logout/all`, so ending them all at once still means a restart.
 
 Removing a user from the credentials file does not end their session by
 itself — it ends only because the file is read once at startup, so removing

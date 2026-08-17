@@ -113,10 +113,10 @@ device it asked about — which means the device id has to be real.
 
 ## Open questions to settle first
 
-- **Device-aware sessions are probably a prerequisite, not a follow-up.**
-  `SessionRegistry` records a user, not a device; the device id is minted at
-  login, returned, and discarded. Every crypto endpoint is per-device, and
-  the storm above is what a device-blind `keys/query` looks like.
+- ~~Device-aware sessions are probably a prerequisite.~~ **Done.**
+  `SessionRegistry` now stores a `DeviceId` per session, `resolve` answers
+  with it, and sessions end one at a time. `keys/query` has a real device to
+  answer about.
 - What `keys/query` must contain for the machine to consider the query
   answered. This is the crux and it is not guessable — it needs the same
   treatment `/sync` got: change one thing, run Element, read the log.

@@ -53,7 +53,7 @@ actor _AuthedJSONHandler is (hobby.HandlerReceiver & UserReceiver)
       _respond(stallion.StatusUnauthorized, MissingToken())
     end
 
-  be token_resolved(user_id: String) =>
+  be token_resolved(user_id: String, device: DeviceId) =>
     _respond(stallion.StatusOK, _body)
 
   be token_rejected() =>

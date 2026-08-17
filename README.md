@@ -7,7 +7,11 @@ web client — one origin, one process.
 
 A skeleton, but a working one: Element loads, a local user signs in, the
 token that comes back can be spent, and the client settles into a real sync
-loop instead of retrying. Ten Matrix endpoints, listed below.
+loop instead of retrying. Thirteen Matrix endpoints, listed below.
+
+One account can be signed in from several clients at once — a browser, a
+phone, a desktop — each with its own device id and its own token, and each
+able to sign out without disturbing the others.
 
 Accounts come from a file of password hashes — there is no registration
 endpoint. Sessions live in memory, so a restart ends all of them. Everything
@@ -167,7 +171,10 @@ public.
 | GET | `/_matrix/client/versions` | `["v1.1"]` |
 | GET | `/_matrix/client/v3/login` | the password flow |
 | POST | `/_matrix/client/v3/login` | verifies a password, issues a token |
-| GET | `/_matrix/client/v3/account/whoami` | resolves a token |
+| GET | `/_matrix/client/v3/account/whoami` | the token's user and device |
+| POST | `/_matrix/client/v3/logout` | ends the calling session |
+| GET | `/_matrix/client/v3/devices` | the account's devices |
+| POST | `/_matrix/client/v3/delete_devices` | ends named sessions |
 | GET | `/_matrix/client/v3/sync` | always empty; holds up to 25 s |
 | GET | `/_matrix/client/v3/pushrules/` | an empty ruleset |
 | POST | `/_matrix/client/v3/user/:userId/filter` | a constant `filter_id` |
@@ -191,6 +198,19 @@ with no `errcode` and put the client into a permanent reconnect flap.
 
 Sessions live in memory only, so a restart logs everyone out. That is
 deliberate: there is nothing worth persisting until rooms and events exist.
+
+Each login mints its own device, so the same account signed in twice has two
+sessions that end independently. `GET /devices` lists them and
+`POST /delete_devices` ends the ones you name — the pair Element's session
+manager is built on. It has no call site for the specification's
+single-device `DELETE /devices/{deviceId}`, so marilwyd does not answer one.
+
+A login never reuses a device id a client asks for. Matrix allows that,
+meaning "replace this device's session", and marilwyd always mints a fresh
+one instead, so a re-login after a soft logout leaves the old session behind
+rather than replacing it. Deleting devices requires user-interactive
+authentication in the specification and only a bearer token here; see
+[SECURITY.md](SECURITY.md).
 
 An unknown user and a wrong password produce byte-identical answers **and
 take the same time** — the unknown-user path derives against a decoy rather

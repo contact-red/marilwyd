@@ -87,6 +87,14 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/account/whoami",
         _Whoami(sessions))
+      .> post("/_matrix/client/v3/logout", _Logout(sessions))
+      // The pair Element's session manager is built on. It has no call
+      // site for the specification's single-device
+      // `DELETE /devices/{deviceId}`, so marilwyd does not answer one.
+      .> get("/_matrix/client/v3/devices", _Devices(sessions))
+      .> post(
+        "/_matrix/client/v3/delete_devices",
+        _DeleteDevices(sessions))
       .> get("/_matrix/client/v3/sync", _Sync(sessions))
       // Element asks for `/pushrules/`. hobby strips a trailing slash at
       // both registration and lookup, so the two spellings are one route
