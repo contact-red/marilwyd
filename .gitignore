@@ -1,5 +1,6 @@
 *.swp
 credentials.json
+credentials.yaml
 build
 element-source
 _repos
