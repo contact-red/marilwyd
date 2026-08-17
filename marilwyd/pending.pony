@@ -28,32 +28,23 @@ class val Pending
   same ten messages hold ten events and three spines of pointers, and ORCA
   traces the one copy.
   """
-  let _events: per.Vec[RoomEvent]
-  let _base: USize
+  let _events: per.Vec[(USize, RoomEvent)]
   let _dropped: USize
 
   new val create() =>
-    _events = per.Vec[RoomEvent]
-    _base = 0
+    _events = per.Vec[(USize, RoomEvent)]
     _dropped = 0
 
-  new val _from(
-    events': per.Vec[RoomEvent],
-    base': USize,
-    dropped': USize)
-  =>
+  new val _from(events': per.Vec[(USize, RoomEvent)], dropped': USize) =>
     _events = events'
-    _base = base'
     _dropped = dropped'
 
-  fun val position(): USize =>
-    """
-    The position a client is given as `next_batch`, and hands back as
-    `since`. Counts every event ever queued for this device.
-    """
-    _base + _events.size()
-
-  fun val push(event: RoomEvent, limit: USize = PendingLimit()): Pending =>
+  fun val push(
+    at: USize,
+    event: RoomEvent,
+    limit: USize = PendingLimit())
+    : Pending
+  =>
     """
     Add an event, dropping the oldest if that puts the queue over its limit.
 
@@ -61,16 +52,15 @@ class val Pending
     device stop a room delivering to everyone else, which is a worse
     failure than a device missing what it was too long away to receive.
     """
-    let grown = _events.push(event)
+    let grown = _events.push((at, event))
     if grown.size() <= limit then
-      Pending._from(grown, _base, _dropped)
+      Pending._from(grown, _dropped)
     else
       let excess = grown.size() - limit
       try
-        Pending._from(
-          grown.remove(0, excess)?, _base + excess, _dropped + excess)
+        Pending._from(grown.remove(0, excess)?, _dropped + excess)
       else
-        Pending._from(grown, _base, _dropped)
+        Pending._from(grown, _dropped)
       end
     end
 
@@ -81,24 +71,18 @@ class val Pending
     A position below what is still held names events that are gone, and is
     answered the same way as no position at all — with what there is.
     """
-    // A position below what is still held names events that are gone; one
-    // above `position()` names events this device has never had. Both are
-    // unusable and both are answered the same way — with everything there
-    // is — because a client cannot tell them apart and neither can be
-    // repaired by sending less.
-    let from =
-      match n
-      | let given: USize
-        if (given >= _base) and (given <= position()) => given - _base
-      else
-        USize(0)
-      end
-
+    // Each entry carries the device position it was queued at, so a
+    // client's `since` is compared rather than turned into an index. That
+    // matters because a device's position advances for things that are not
+    // events — a change to the account's data is one — so an index derived
+    // from a position would drift the moment one happened.
     let found = recover iso Array[RoomEvent] end
-    var i = from
-    while i < _events.size() do
-      try found.push(_events(i)?) end
-      i = i + 1
+    for (at, event) in _events.values() do
+      match n
+      | let given: USize if at <= given => None
+      else
+        found.push(event)
+      end
     end
     consume found
 
@@ -108,12 +92,21 @@ class val Pending
     asking for what comes after it.
     """
     match n
-    | let given: USize if given > _base =>
-      let drop = (given - _base).min(_events.size())
-      try
-        Pending._from(_events.remove(0, drop)?, _base + drop, _dropped)
-      else
+    | let given: USize =>
+      var drop: USize = 0
+      for (at, _) in _events.values() do
+        if at <= given then
+          drop = drop + 1
+        end
+      end
+      if drop == 0 then
         this
+      else
+        try
+          Pending._from(_events.remove(0, drop)?, _dropped)
+        else
+          this
+        end
       end
     else
       this

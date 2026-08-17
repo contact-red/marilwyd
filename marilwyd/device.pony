@@ -21,6 +21,10 @@ actor Device
   var _parked: (SyncReceiver tag | None) = None
   var _parked_since: (USize | None) = None
   var _state: Array[RoomEvent] val = recover val Array[RoomEvent] end
+  var _account: Array[AccountDatum] val =
+    recover val Array[AccountDatum] end
+  var _account_at: USize = 0
+  var _position: USize = 0
 
   new create(id': DeviceId, epoch: StreamEpoch) =>
     _id = id'
@@ -30,7 +34,11 @@ actor Device
     """
     Take an event this device's user is entitled to.
     """
-    _pending = _pending.push(event)
+    // The device's own position, which advances for anything a client
+    // needs to know about — not only events. Account data is the other
+    // one, and deriving a position from the queue's length would miss it.
+    _position = _position + 1
+    _pending = _pending.push(_position, event)
     _wake()
 
   be room_state(state': Array[RoomEvent] val) =>
@@ -42,6 +50,20 @@ actor Device
     """
     _state = state'
 
+  be account_data(data: Array[AccountDatum] val) =>
+    """
+    Replace what this device is owed about its account's data.
+
+    Stamped with the current position, so a sync includes it exactly when
+    the client's position predates the change — the same rule room state
+    uses, and one that survives a response being lost, since the client's
+    position only advances when it asks for what comes after it.
+    """
+    _account = data
+    _position = _position + 1
+    _account_at = _position
+    _wake()
+
   be sync(since: (USize | None), wait: U64, receiver: SyncReceiver tag) =>
     """
     Answer what is owed, or hold the request until something is.
@@ -50,7 +72,9 @@ actor Device
     // received everything up to it.
     _pending = _pending.acknowledged(since)
 
-    if (_pending.size() > 0) or (wait == 0) or (since is None) then
+    if (_pending.size() > 0) or (wait == 0) or (since is None)
+      or _account_unseen(since)
+    then
       _answer(receiver, since)
     else
       _parked = receiver
@@ -81,6 +105,16 @@ actor Device
       _parked_since = None
     end
 
+  fun _account_unseen(since: (USize | None)): Bool =>
+    """
+    Whether the account data changed after the position the client gave.
+    """
+    match since
+    | let n: USize => _account_at > n
+    else
+      _account.size() > 0
+    end
+
   fun ref _wake() =>
     match _parked
     | let receiver: SyncReceiver tag =>
@@ -101,9 +135,17 @@ actor Device
       else
         _state
       end
+    let account =
+      if _account_unseen(since) then
+        _account
+      else
+        recover val Array[AccountDatum] end
+      end
+
     receiver.synced(
       SyncView(
-        StreamPositionText(_epoch, _pending.position()),
+        StreamPositionText(_epoch, _position),
         owed,
         state',
+        account,
         _pending.dropped() > 0))

@@ -17,6 +17,7 @@ actor User
   let id: String
   embed _devices: Map[String, Device tag] = _devices.create()
   embed _rooms: Map[String, Room tag] = _rooms.create()
+  embed _account: Map[String, String] = _account.create()
 
   new create(id': String) =>
     id = id'
@@ -29,10 +30,14 @@ actor User
     replaces its own entry and keeps everything the actor was holding.
     """
     _devices(device_id) = device
-    // A returning device knows nothing about the rooms joined while it was
-    // away, so it is told the current state of each.
+    // A returning device knows nothing about what happened while it was
+    // away, so it is told the current state of each room and the account's
+    // data as it stands.
     for (room_id, room) in _rooms.pairs() do
       room.describe(device)
+    end
+    if _account.size() > 0 then
+      device.account_data(_snapshot())
     end
 
   be detach(device_id: String) =>
@@ -42,6 +47,34 @@ actor User
     """
     try
       (_, _) = _devices.remove(device_id)?
+    end
+
+  be set_account_data(kind: String, content: String) =>
+    """
+    Store one piece of account data and tell every device.
+
+    Cloned on the way in, because this actor outlives the handler that read
+    the request — a stored foreign reference would keep that handler, its
+    connection and its request body alive.
+    """
+    _account(kind.clone()) = content.clone()
+    let snapshot = _snapshot()
+    for device in _devices.values() do
+      device.account_data(snapshot)
+    end
+
+  be account_datum(kind: String, receiver: AccountDataReceiver tag) =>
+    """
+    Answer one piece of account data.
+
+    Element reads account data from its local store once its first sync
+    completes, so this endpoint is only reached before that. It exists
+    because that window is real, not because anything polls it.
+    """
+    try
+      receiver.account_datum_found(_account(kind)?)
+    else
+      receiver.account_datum_missing()
     end
 
   be joined(room_id: String, room: Room tag) =>
@@ -65,6 +98,13 @@ actor User
     for device in _devices.values() do
       device.deliver(event)
     end
+
+  fun _snapshot(): Array[AccountDatum] val =>
+    let found = recover iso Array[AccountDatum] end
+    for (kind, content) in _account.pairs() do
+      found.push(AccountDatum(kind, content))
+    end
+    consume found
 
   be rooms(receiver: RoomListReceiver tag) =>
     let found = recover iso Array[String] end

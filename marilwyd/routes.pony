@@ -114,6 +114,12 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/rooms/:roomId/state",
         _RoomState(sessions, rooms))
+      .> put(
+        "/_matrix/client/v3/user/:userId/account_data/:type",
+        _SetAccountData(sessions))
+      .> get(
+        "/_matrix/client/v3/user/:userId/account_data/:type",
+        _GetAccountData(sessions))
       // Element asks for `/pushrules/`. hobby strips a trailing slash at
       // both registration and lookup, so the two spellings are one route
       // and only one may be registered — a second would silently replace

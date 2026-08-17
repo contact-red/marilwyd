@@ -227,6 +227,18 @@ primitive SyncDocument
       let out = String(512)
       out.append("{\"next_batch\":")
       out.append(JsonPrinter.print(view.next_batch))
+      if view.account.size() > 0 then
+        out.append(",\"account_data\":{\"events\":[")
+        var account_first = true
+        for datum in view.account.values() do
+          if not account_first then
+            out.append(",")
+          end
+          account_first = false
+          out.append(datum.render())
+        end
+        out.append("]}")
+      end
       if grouped.size() > 0 then
         out.append(",\"rooms\":{\"join\":{")
         var first = true

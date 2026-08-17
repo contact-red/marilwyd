@@ -115,6 +115,8 @@ actor Main is TestList
     test(_TestSendingToARoomYouAreNotInIsRefused)
     test(_TestAMemberMaySend)
     test(_TestAWokenSyncCarriesNoState)
+    test(_TestAccountDataReachesADevice)
+    test(_TestAccountDataIsNotResent)
     test(_TestCreateRoomWithoutATokenIsRefused)
     test(_TestCreateRoomAnswersARoomId)
     test(_TestSendingToARoomThatDoesNotExist)
