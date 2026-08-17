@@ -2,7 +2,8 @@ use "ssl/crypto"
 
 actor HashPassword
   """
-  Read a password from stdin and print the credentials entry for it.
+  Read a password from stdin and print the credentials entry for it, as a
+  YAML sequence element ready to paste under `users:`.
 
   The password is read from stdin rather than taken as an argument, so it
   never reaches the process table or shell history:
@@ -65,13 +66,15 @@ actor HashPassword
         return
       end
 
-    _env.out.print("{")
-    _env.out.print("  \"localpart\": \"" + _localpart + "\",")
-    _env.out.print("  \"algorithm\": \"pbkdf2-sha256\",")
-    _env.out.print("  \"iterations\": " + Pbkdf2Iterations().string() + ",")
-    _env.out.print("  \"salt\": \"" + ToHexString(salt) + "\",")
-    _env.out.print("  \"hash\": \"" + ToHexString(hash) + "\"")
-    _env.out.print("}")
+    // A sequence element, so the output pastes straight under `users:`
+    // in a credentials file. Salt and hash are quoted: `yaml` would keep
+    // an unquoted hex string as text anyway, but a reader looking at the
+    // file should not have to know that to trust it.
+    _env.out.print("  - localpart: " + _localpart)
+    _env.out.print("    algorithm: pbkdf2-sha256")
+    _env.out.print("    iterations: " + Pbkdf2Iterations().string())
+    _env.out.print("    salt: \"" + ToHexString(salt) + "\"")
+    _env.out.print("    hash: \"" + ToHexString(hash) + "\"")
 
 primitive _Chomp
   """

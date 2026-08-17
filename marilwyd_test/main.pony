@@ -405,7 +405,7 @@ primitive _CredentialsFixture
   """
   The credentials file every server-booting test uses.
   """
-  fun path(): String => "build/test-credentials.json"
+  fun path(): String => "build/test-credentials.yaml"
 
   fun apply(h: TestHelper): String => path()
 
@@ -434,11 +434,12 @@ primitive _WriteFixtures
           _TestUser.iterations(),
           Pbkdf2KeyLength())?
       let body: String =
-        "{\"users\":[{\"localpart\":\"" + _TestUser.localpart() + "\","
-          + "\"algorithm\":\"pbkdf2-sha256\","
-          + "\"iterations\":" + _TestUser.iterations().string() + ","
-          + "\"salt\":\"" + ToHexString(salt) + "\","
-          + "\"hash\":\"" + ToHexString(hash) + "\"}]}"
+        "users:\n"
+          + "  - localpart: " + _TestUser.localpart() + "\n"
+          + "    algorithm: pbkdf2-sha256\n"
+          + "    iterations: " + _TestUser.iterations().string() + "\n"
+          + "    salt: \"" + ToHexString(salt) + "\"\n"
+          + "    hash: \"" + ToHexString(hash) + "\"\n"
       let path = FilePath(auth, _CredentialsFixture.path())
       _write(path, body)
       // `_ReadCredentialsFile` refuses a file others can read.

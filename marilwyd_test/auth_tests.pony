@@ -40,7 +40,7 @@ class \nodoc\ iso _TestCredentialsRejectDuplicateLocalpart is UnitTest
     _AssertCredentialsRefused(
       h,
       "duplicate",
-      "{\"users\":[" + _Entry("alice") + "," + _Entry("alice") + "]}",
+      _Users(_Entry("alice") + _Entry("alice")),
       "credentials-duplicate")
 
 class \nodoc\ iso _TestCredentialsRejectUnknownAlgorithm is UnitTest
@@ -54,8 +54,7 @@ class \nodoc\ iso _TestCredentialsRejectUnknownAlgorithm is UnitTest
     _AssertCredentialsRefused(
       h,
       "algorithm",
-      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"md5\","
-        + "\"iterations\":1,\"salt\":\"00\",\"hash\":\"00\"}]}",
+      _Users(_EntryWith("a", "md5", "1", "00", "00")),
       "credentials-algorithm")
 
 class \nodoc\ iso _TestCredentialsRejectEmptyHash is UnitTest
@@ -70,9 +69,13 @@ class \nodoc\ iso _TestCredentialsRejectEmptyHash is UnitTest
     _AssertCredentialsRefused(
       h,
       "empty-hash",
-      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
-        + "\"iterations\":600000,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
-        + "\",\"hash\":\"\"}]}",
+      _Users(
+        _EntryWith(
+          "a",
+          "pbkdf2-sha256",
+          "600000",
+          _Hex(Pbkdf2SaltLength()),
+          "")),
       "credentials-hash-length")
 
 class \nodoc\ iso _TestCredentialsRejectTruncatedHash is UnitTest
@@ -86,9 +89,13 @@ class \nodoc\ iso _TestCredentialsRejectTruncatedHash is UnitTest
     _AssertCredentialsRefused(
       h,
       "short-hash",
-      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
-        + "\"iterations\":600000,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
-        + "\",\"hash\":\"" + _Hex(4) + "\"}]}",
+      _Users(
+        _EntryWith(
+          "a",
+          "pbkdf2-sha256",
+          "600000",
+          _Hex(Pbkdf2SaltLength()),
+          _Hex(4))),
       "credentials-hash-length")
 
 class \nodoc\ iso _TestCredentialsRejectShortSalt is UnitTest
@@ -98,9 +105,13 @@ class \nodoc\ iso _TestCredentialsRejectShortSalt is UnitTest
     _AssertCredentialsRefused(
       h,
       "short-salt",
-      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
-        + "\"iterations\":600000,\"salt\":\"00\",\"hash\":\""
-        + _Hex(Pbkdf2KeyLength()) + "\"}]}",
+      _Users(
+        _EntryWith(
+          "a",
+          "pbkdf2-sha256",
+          "600000",
+          "00",
+          _Hex(Pbkdf2KeyLength()))),
       "credentials-salt-length")
 
 class \nodoc\ iso _TestCredentialsRejectWeakIterations is UnitTest
@@ -114,15 +125,24 @@ class \nodoc\ iso _TestCredentialsRejectWeakIterations is UnitTest
     _AssertCredentialsRefused(
       h,
       "weak-iterations",
-      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
-        + "\"iterations\":1,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
-        + "\",\"hash\":\"" + _Hex(Pbkdf2KeyLength()) + "\"}]}",
+      _Users(
+        _EntryWith(
+          "a",
+          "pbkdf2-sha256",
+          "1",
+          _Hex(Pbkdf2SaltLength()),
+          _Hex(Pbkdf2KeyLength()))),
       "credentials-iterations")
 
 class \nodoc\ iso _TestCredentialsRejectNarrowingIterations is UnitTest
   """
-  `n.u32()` wraps, so a count above 2^32 used to become a small one and
-  quietly unstretch the entry.
+  A count above 2^32 is refused where it is read, not after.
+
+  Narrowing by hand wraps, so such a count used to become a small one and
+  quietly unstretch the entry. Binding it as a `U32` makes that
+  unrepresentable, which is why this is refused as malformed rather than by
+  the iteration-count rule — the rule never sees a value it could be wrong
+  about.
   """
   fun name(): String =>
     "credentials/an iteration count that would narrow is refused"
@@ -131,10 +151,14 @@ class \nodoc\ iso _TestCredentialsRejectNarrowingIterations is UnitTest
     _AssertCredentialsRefused(
       h,
       "narrowing-iterations",
-      "{\"users\":[{\"localpart\":\"a\",\"algorithm\":\"pbkdf2-sha256\","
-        + "\"iterations\":4294968296,\"salt\":\"" + _Hex(Pbkdf2SaltLength())
-        + "\",\"hash\":\"" + _Hex(Pbkdf2KeyLength()) + "\"}]}",
-      "credentials-iterations")
+      _Users(
+        _EntryWith(
+          "a",
+          "pbkdf2-sha256",
+          "4294968296",
+          _Hex(Pbkdf2SaltLength()),
+          _Hex(Pbkdf2KeyLength()))),
+      "credentials-malformed")
 
 class \nodoc\ iso _TestCredentialsRejectBadLocalpart is UnitTest
   """
@@ -147,7 +171,7 @@ class \nodoc\ iso _TestCredentialsRejectBadLocalpart is UnitTest
     _AssertCredentialsRefused(
       h,
       "bad-localpart",
-      "{\"users\":[" + _Entry("@bob:elsewhere") + "]}",
+      _Users(_Entry("@bob:elsewhere")),
       "credentials-localpart")
 
 class \nodoc\ iso _TestCredentialsRejectEmptyUserList is UnitTest
@@ -160,7 +184,7 @@ class \nodoc\ iso _TestCredentialsRejectEmptyUserList is UnitTest
     _AssertCredentialsRefused(
       h,
       "empty",
-      "{\"users\":[]}",
+      _Users(""),
       "credentials-empty")
 
 primitive _Entry
@@ -169,10 +193,45 @@ primitive _Entry
   using this fails for the reason it names rather than for its fixture.
   """
   fun apply(localpart: String): String =>
-    "{\"localpart\":\"" + localpart + "\",\"algorithm\":\"pbkdf2-sha256\","
-      + "\"iterations\":600000,"
-      + "\"salt\":\"" + _Hex(Pbkdf2SaltLength()) + "\","
-      + "\"hash\":\"" + _Hex(Pbkdf2KeyLength()) + "\"}"
+    _EntryWith(
+      localpart,
+      "pbkdf2-sha256",
+      "600000",
+      _Hex(Pbkdf2SaltLength()),
+      _Hex(Pbkdf2KeyLength()))
+
+primitive _EntryWith
+  """
+  One `users` element with every field spelled out, so a test can make
+  exactly one of them wrong.
+
+  `iterations` is text rather than a number because some tests need a value
+  no integer type holds.
+  """
+  fun apply(
+    localpart: String,
+    algorithm: String,
+    iterations: String,
+    salt: String,
+    hash: String)
+    : String
+  =>
+    "  - localpart: \"" + localpart + "\"\n"
+      + "    algorithm: \"" + algorithm + "\"\n"
+      + "    iterations: " + iterations + "\n"
+      + "    salt: \"" + salt + "\"\n"
+      + "    hash: \"" + hash + "\"\n"
+
+primitive _Users
+  """
+  A credentials document holding `entries`.
+  """
+  fun apply(entries: String): String =>
+    if entries.size() == 0 then
+      "users: []\n"
+    else
+      "users:\n" + entries
+    end
 
 primitive _Hex
   """
@@ -204,7 +263,7 @@ primitive _AssertCredentialsRefused
     let path =
       FilePath(
         FileAuth(h.env.root),
-        "build/test-credentials-" + fixture + ".json")
+        "build/test-credentials-" + fixture + ".yaml")
     File(path) .> set_length(0) .> write(body) .> dispose()
     match \exhaustive\ ReadCredentials(path)
     | let c: Credentials => h.fail("accepted " + body)
