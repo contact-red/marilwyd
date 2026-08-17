@@ -74,13 +74,13 @@ actor _LoginHandler is (hobby.HandlerReceiver & TokenReceiver)
       stallion.StatusForbidden,
       MatrixError("M_FORBIDDEN", "Invalid username or password"))
 
-  be token_issued(token: AccessToken, device_id: String) =>
+  be token_issued(token: AccessToken, device: DeviceId) =>
     _respond(
       stallion.StatusOK,
       LoginSuccess(
         _user_id
         where access_token' = token.reveal(),
-              device_id' = device_id,
+              device_id' = device.string(),
               server_name' = _homeserver.server_name))
 
   be token_refused() =>

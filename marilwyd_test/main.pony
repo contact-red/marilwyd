@@ -80,6 +80,21 @@ actor Main is TestList
     test(_TestUnimplementedPutIsJSON)
     test(_TestUnimplementedDeleteIsJSON)
     test(_TestMatrixRootAnswersEveryMethod)
+    test(_TestTwoLoginsAreTwoDevices)
+    test(_TestRevokeEndsOnlyThatSession)
+    test(_TestDeviceRevocationIsScopedToItsOwner)
+    test(_TestDeletingADeviceEndsThatSession)
+    test(_TestDevicesListsOnlyYourOwn)
+    test(_TestATokenResolvesToItsOwnDevice)
+    test(_TestWhoamiReportsTheDevice)
+    test(_TestLogoutEndsTheSession)
+    test(_TestLogoutWithoutATokenIsRefused)
+    test(_TestLogoutRejectsAnUnknownToken)
+    test(_TestDevicesRequiresAToken)
+    test(_TestDevicesListsTheCallersDevice)
+    test(_TestDeleteDevicesRequiresAToken)
+    test(_TestDeleteDevicesAcceptsAList)
+    test(_TestDeleteDevicesRefusesABadBody)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost

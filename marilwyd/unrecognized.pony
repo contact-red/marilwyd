@@ -40,7 +40,7 @@ actor _UnrecognizedHandler is (hobby.HandlerReceiver & UserReceiver)
       _unrecognized()
     end
 
-  be token_resolved(user_id: String) =>
+  be token_resolved(user_id: String, device: DeviceId) =>
     // The session is live; the endpoint really is the missing part.
     _unrecognized()
 

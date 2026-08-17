@@ -2,7 +2,7 @@ interface tag TokenReceiver
   """
   Something waiting to be told whether a token was issued.
   """
-  be token_issued(token: AccessToken, device_id: String)
+  be token_issued(token: AccessToken, device: DeviceId)
     """
     A token was minted and recorded.
     """
