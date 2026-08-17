@@ -96,6 +96,10 @@ class \nodoc\ iso _TestUnrecognizedEndpointIsJSON is UnitTest
   The status is 404 whether or not the catch-all is wired: without it the
   request falls through to the static handler and gets a plain-text 404. The
   parse is the test, not the status.
+
+  This is also the no-token case of `_Unrecognized` itself: with no token
+  offered there is nothing to say about one, so the honest answer stays
+  "no such endpoint".
   """
   fun name(): String => "routes/unimplemented _matrix path is M_UNRECOGNIZED"
 
@@ -148,6 +152,46 @@ class \nodoc\ iso _TestLoginPostRefusesInMatrixVocabulary is UnitTest
         h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
         _AssertErrcode(h, r, "M_MISSING_PARAM")
       } val)
+
+primitive _UnimplementedPath
+  """
+  A `/_matrix` path nothing is going to implement.
+
+  Tests of the catch-all need a path that stays unrouted. Naming a real
+  endpoint works until someone implements it, and then the test keeps
+  passing while silently covering that endpoint's handler instead — which
+  is exactly what happened to `_TestUnimplementedRejectsStaleToken` when
+  `/sync` landed.
+  """
+  fun apply(): String => "/_matrix/client/v3/no_such_endpoint"
+
+primitive _AssertJSONKey
+  fun apply(
+    h: TestHelper,
+    response: String,
+    key: String,
+    expected: String)
+  =>
+    """
+    Assert the response body parses as JSON and `key` holds `expected`.
+
+    The sibling of `_AssertErrcode` for success bodies. Without it a test
+    asserting `contains("next_batch")` passes on a truncated body, on a
+    header that happens to mention the key, and on any value at all.
+    """
+    try
+      let body = response.substring(response.find("\r\n\r\n")? + 4)
+      match JsonParser.parse(consume body)
+      | let o: JsonObject =>
+        h.assert_eq[String](expected, o(key)? as String)
+      | let e: JsonParseError =>
+        h.fail("body is not JSON: " + response)
+      else
+        h.fail("body is not a JSON object: " + response)
+      end
+    else
+      h.fail("no body, or " + key + " missing: " + response)
+    end
 
 primitive _AssertErrcode
   fun apply(h: TestHelper, response: String, expected: String) =>

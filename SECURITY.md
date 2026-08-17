@@ -98,7 +98,66 @@ attempts took an unrelated static request from 1 ms to over a second. On a
 many-core host it is not noticeable; on a one or two vCPU VPS it is a
 denial-of-service surface.
 
-Memory is not remotely growable this way — a failed login retains nothing.
+Memory is remotely growable, through the parse rather than the derivation.
+`_ParseLogin` hands the request body to `JsonParser`, which allocates a
+container frame per level of nesting and bounds neither depth nor total
+allocation. Measured against the shipped binary from a fresh process, 100
+concurrent deeply-nested bodies of 64 kB each — 6.4 MB of traffic — took RSS
+from 8.9 MB to 901 MB, and it does not come back. The request is refused with
+`400` before any derivation runs, so this costs an attacker less than a real
+login attempt does.
+
+The 64 kB body limit caps the per-request cost, and is why the figure is
+901 MB rather than sixteen times that. It does not cap the total.
+A depth or size check before `JsonParser.parse` would; there is no limits API
+on `JsonParser` in ponyc 0.68.0, so it has to be a length check on the body
+or a `JsonTokenNotify` that aborts past a depth.
+
+## Cost of a held sync
+
+`/sync` holds a request open for up to 25 seconds before answering. That
+changes what a connection costs to keep, and it is a deliberate trade.
+
+Before `/sync`, every request was answered in milliseconds, so the number of
+simultaneous connections tracked the arrival rate. Now it tracks the number
+of signed-in clients, continuously: each one keeps a connection, a handler
+actor, two timers — marilwyd's deadline and hobby's watchdog — and its
+parsed request and body alive for the whole wait, then re-opens
+immediately afterwards. Measured at 147 kB per held sync, and 262 kB when
+the request carries a 65,000-byte body, since the body is pinned for the
+full hold.
+
+A client that closes its tab costs nothing extra: the FIN reaches
+`_SyncHandler.dispose`, which cancels the deadline at once. A client that
+vanishes without closing — a suspended laptop, a dropped network — is the
+expensive case, and there the socket is not released either; stallion's
+60-second idle timeout is what eventually reclaims it.
+
+One connection can also hold far more than one sync. hobby answers pipelined
+requests in order, so several holds sent in a single write are served one
+after another, each response resetting the idle timer. Measured: three
+pipelined 25-second syncs in one 450-byte write answered at 25, 50 and 75
+seconds. At stallion's default of 100 pending responses that is over 40
+minutes of pinned connection bought with about 15 kB.
+
+Nothing in marilwyd bounds how many syncs are held at once. The only ceiling
+is lori's own default of 100,000 connections, which marilwyd cannot currently
+change, because `hobby.Server` does not expose it — recorded under **Known
+upstream issues** in the README. On the one or two vCPU VPS this project is
+aimed at, that ceiling is not a protection.
+
+This is accepted rather than fixed, for the same reason as the login cost
+above: marilwyd is a personal homeserver, and both surfaces need an
+authenticated session or a rate limiter in front rather than a bound here.
+Holding costs more memory per client than the alternatives and far less CPU
+and bandwidth: answering immediately produces 36 requests a second per
+client, and letting hobby's watchdog expire produces a `504` with no
+`errcode` and a permanent client reconnect flap.
+
+The bound to add first, if this becomes real: a count of held syncs, with
+anything above it answered immediately instead of held. Matrix permits a
+server to answer before the requested timeout, so that degrades to the
+immediate-answer behaviour rather than to an error.
 
 ## Deployment shape
 

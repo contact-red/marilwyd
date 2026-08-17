@@ -1,3 +1,4 @@
+use "time"
 use hobby = "hobby"
 use stallion = "stallion"
 
@@ -9,11 +10,12 @@ primitive Routes
   specificity, static beating parameter beating wildcard, structurally in a
   trie. The rows are grouped by namespace because that is how they read.
 
-  Three rows are marked `hobby#1`. hobby's router does not consult a node's
-  wildcard entries once the request's path segments are exhausted, so a
-  wildcard mount cannot answer its own mount point. A companion route is
-  needed wherever a declared namespace root must answer in that namespace's
-  own vocabulary — `/`, `/element` and `/_matrix` — and nowhere else.
+  The rows marked `hobby#1` are companions. hobby's router does not consult
+  a node's wildcard entries once the request's path segments are exhausted,
+  so a wildcard mount cannot answer its own mount point. A companion route
+  is needed wherever a declared namespace root must answer in that
+  namespace's own vocabulary — `/`, `/element` and `/_matrix` — and nowhere
+  else, and it is needed once per method the wildcard covers.
   `/element/bundles` also 404s plain-text, and no client asks for it.
   """
   fun apply(
@@ -40,8 +42,11 @@ primitive Routes
 
     match log
     | let out: OutStream tag =>
-      app.add_request_interceptor(_LogRequest(out))
-      app.add_response_interceptor(_LogResponse(out))
+      // One start for both, so the two halves of a request are stamped on
+      // the same clock and their difference is the time it took.
+      let start = Time.nanos()
+      app.add_request_interceptor(_LogRequest(out, start))
+      app.add_response_interceptor(_LogResponse(out, start))
     end
 
     (app
@@ -82,7 +87,38 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/account/whoami",
         _Whoami(sessions))
+      .> get("/_matrix/client/v3/sync", _Sync(sessions))
+      // Element asks for `/pushrules/`. hobby strips a trailing slash at
+      // both registration and lookup, so the two spellings are one route
+      // and only one may be registered — a second would silently replace
+      // the first rather than fail to build.
+      .> get(
+        "/_matrix/client/v3/pushrules",
+        _AuthedJSON(sessions, PushRules()))
+      .> post(
+        "/_matrix/client/v3/user/:userId/filter",
+        _AuthedJSON(sessions, FilterCreated()))
+      .> get(
+        "/_matrix/client/v3/user/:userId/filter/:filterId",
+        _AuthedJSON(sessions, EmptyFilter()))
+
+      // A method with no row at all is hobby's business, and hobby answers
+      // it with a plain-text `Method Not Allowed` carrying no `errcode` —
+      // the exact failure `UnrecognizedRequest` exists to prevent. These
+      // four are the methods Element was observed to send; it uses
+      // `POST .../keys/query` and `PUT .../account_data/...` every session.
+      // `OPTIONS` and `PATCH` still get the plain-text 405, and `OPTIONS`
+      // is a real gap: a browser preflight needs CORS headers, which a
+      // `M_UNRECOGNIZED` row would not supply either.
       .> get("/_matrix/*endpoint", unrecognized)
+      .> post("/_matrix/*endpoint", unrecognized)
+      .> put("/_matrix/*endpoint", unrecognized)
+      .> delete("/_matrix/*endpoint", unrecognized)
+
+      // One companion per method, for the same reason as the GET above.
+      .> post("/_matrix", unrecognized)                            // hobby#1
+      .> put("/_matrix", unrecognized)                             // hobby#1
+      .> delete("/_matrix", unrecognized)                          // hobby#1
     ).build()
 
 primitive _JSONHeaders

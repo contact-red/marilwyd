@@ -1,4 +1,5 @@
 use "pony_test"
+use "time"
 use "files"
 use "ssl/crypto"
 use "../marilwyd"
@@ -54,7 +55,31 @@ actor Main is TestList
     test(_TestCredentialsRejectNarrowingIterations)
     test(_TestCredentialsRejectBadLocalpart)
     test(_TestUnimplementedRejectsStaleToken)
-    test(_TestUnimplementedWithoutTokenIs404)
+    test(_TestSyncWaitDefaultsToZero)
+    test(_TestSyncWaitHonoursRequest)
+    test(_TestSyncWaitClamps)
+    test(_TestSyncWaitRefusesMalformed)
+    test(_TestSyncWaitRefusesUndecodableQuery)
+    test(_TestMaxSyncWaitIsUnderTheWatchdog)
+    test(_TestSyncWithoutTokenIsUnauthorized)
+    test(_TestSyncRejectsAnUnknownToken)
+    test(_TestSyncAnswersAtOnceWithoutATimeout)
+    test(_TestSyncHoldsForTheRequestedTimeout)
+    test(_TestSyncRefusesAMalformedTimeout)
+    test(_TestPushRulesRequiresAToken)
+    test(_TestPushRulesServesARuleset)
+    test(_TestFilterCreateReturnsAnID)
+    test(_TestFilterFetchRequiresAToken)
+    test(_TestNonGetUnimplementedIsJSON)
+    test(_TestSyncParsesNothingWithoutAToken)
+    test(_TestSyncParsesNothingForABadToken)
+    test(_TestSyncRefusesAnUndecodableQuery)
+    test(_TestFilterCreateRequiresAToken)
+    test(_TestFilterFetchServesAnEmptyFilter)
+    test(_TestAuthedJSONRejectsAnUnknownToken)
+    test(_TestUnimplementedPutIsJSON)
+    test(_TestUnimplementedDeleteIsJSON)
+    test(_TestMatrixRootAnswersEveryMethod)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
@@ -74,17 +99,25 @@ actor _TestClient is (lori.TCPConnectionActor &
   let _server: hobby.Server tag
   let _check: {(String)} val
   var _response: String iso = recover iso String end
+  let _close_server: Bool
 
   new create(
     auth: lori.TCPConnectAuth,
     port: String,
     request: String,
     server: hobby.Server tag,
-    check: {(String)} val)
+    check: {(String)} val,
+    close_server: Bool = true)
   =>
+    """
+    `close_server = false` leaves the listener up so a second request can
+    be sent to it — see `_ServeAuthed`, where the first request is a login
+    whose token the second one has to spend.
+    """
     _request = request
     _server = server
     _check = check
+    _close_server = close_server
     _conn = lori.TCPConnection.client(auth, _TestHost(), port, "", this, this)
 
   fun ref _connection(): lori.TCPConnection => _conn
@@ -98,9 +131,13 @@ actor _TestClient is (lori.TCPConnectionActor &
 
   fun ref _on_closed() =>
     _check(_response.clone())
-    _server.dispose()
+    if _close_server then
+      _server.dispose()
+    end
 
   fun ref _on_connection_failure(reason: lori.ConnectionFailureReason) =>
+    // Always closes, whatever `_close_server` says: a failed connection
+    // means no follow-up request is coming, so nothing else will.
     _check("")
     _server.dispose()
 
@@ -128,25 +165,10 @@ primitive _Serve
   fun apply(h: TestHelper, request: String, check: {(String)} val) =>
     h.long_test(10_000_000_000)
 
-    let auth = FileAuth(h.env.root)
-    let root = _Fixture(h)
-
     let config =
-      match \exhaustive\ Configure(
-        recover val
-          [ "marilwyd"; "serve"
-            "--server-name"; "example.test"
-            "--asset-root"; root
-            "--credentials"; _CredentialsFixture(h)
-            "--bind-host"; _TestHost()
-            "--bind-port"; "0" ]
-        end, auth)
+      match _TestConfig(h)
       | let c: Config => c
-      | let e: StartupError => h.fail(e.message); h.complete(false); return
-      | let hr: HelpRequested => h.fail("help requested"); h.complete(false)
-        return
-      | let hp: HashPasswordRequested =>
-        h.fail("hash-password requested"); h.complete(false)
+      else
         return
       end
 
@@ -163,14 +185,145 @@ primitive _Serve
               server,
               {(resp)(check, h) => check(resp); h.complete(true) } val)
           } val)
-      hobby.Server(
-        lori.TCPListenAuth(h.env.root),
-        built,
-        notify
-        where host = _TestHost(), port = config.bind_port)
+      // Disposed when the test ends however it ends. A long test that
+      // times out would otherwise leak the listener, and `/sync` is the
+      // first handler whose correct behaviour is to not answer yet.
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
     | let e: hobby.ConfigError =>
       h.fail(e.message)
       h.complete(false)
+    end
+
+primitive _TestConfig
+  """
+  The configuration every server-booting test runs on.
+
+  Fails and completes the test itself on any error, so a caller that gets
+  `None` back has nothing left to do but return.
+  """
+  fun apply(h: TestHelper): (Config | None) =>
+    match \exhaustive\ Configure(
+      recover val
+        [ "marilwyd"; "serve"
+          "--server-name"; "example.test"
+          "--asset-root"; _Fixture(h)
+          "--credentials"; _CredentialsFixture(h)
+          "--bind-host"; _TestHost()
+          "--bind-port"; "0" ]
+      end, FileAuth(h.env.root))
+    | let c: Config => c
+    | let e: StartupError => h.fail(e.message); h.complete(false); None
+    | let hr: HelpRequested => h.fail("help requested"); h.complete(false)
+      None
+    | let hp: HashPasswordRequested =>
+      h.fail("hash-password requested"); h.complete(false)
+      None
+    end
+
+primitive _ServeAuthed
+  """
+  Boot the real route table, log `_TestUser` in, then send one request
+  carrying the token that login issued.
+
+  Two connections against one listener, because the token has to exist
+  before the second request can be built. Nothing else in the suite spends
+  a real token over HTTP — every other token test either fabricates one or
+  goes at `SessionRegistry` directly — so no authenticated route's success
+  path was reachable from a test before this.
+
+  `build` receives the access token and returns the raw request to send.
+  `check` receives the raw response and the milliseconds that request took.
+
+  The timing is measured here rather than by the caller because only here
+  is the login already done: a test that stamps its own clock before this
+  runs is measuring configuration, a bind and a PBKDF2 derivation as well,
+  which can only inflate the figure and so can only make an assertion pass.
+  """
+  fun apply(
+    h: TestHelper,
+    build: {(String): String} val,
+    check: {(String, U64)} val)
+  =>
+    h.long_test(10_000_000_000)
+
+    let config =
+      match _TestConfig(h)
+      | let c: Config => c
+      else
+        return
+      end
+
+    match \exhaustive\ Routes(config, SessionRegistry)
+    | let built: hobby.BuiltApplication =>
+      let connect_auth = lori.TCPConnectAuth(h.env.root)
+      let notify =
+        _TestNotify(
+          {(port, server)(connect_auth, build, check, h) =>
+            _TestClient(
+              connect_auth,
+              port,
+              _Post(
+                "/_matrix/client/v3/login",
+                _PasswordLogin(_TestUser.password())),
+              server,
+              {(login)(connect_auth, port, build, check, h, server) =>
+                match _TokenFrom(login)
+                | let token: String =>
+                  let sent = Time.nanos()
+                  _TestClient(
+                    connect_auth,
+                    port,
+                    build(token),
+                    server,
+                    {(resp)(check, h, sent) =>
+                      check(resp, (Time.nanos() - sent) / 1_000_000)
+                      h.complete(true)
+                    } val)
+                else
+                  h.fail("login did not yield an access token: " + login)
+                  h.complete(false)
+                  server.dispose()
+                end
+              } val
+              where close_server = false)
+          } val)
+      // Disposed when the test ends however it ends. A long test that
+      // times out would otherwise leak the listener, and `/sync` is the
+      // first handler whose correct behaviour is to not answer yet.
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
+    | let e: hobby.ConfigError =>
+      h.fail(e.message)
+      h.complete(false)
+    end
+
+primitive _TokenFrom
+  """
+  Pull `access_token` out of a raw login response.
+
+  A substring scan rather than a parse: the response is a whole HTTP
+  message, and the tests that care whether the body is well-formed JSON
+  assert that separately.
+  """
+  fun apply(response: String): (String | None) =>
+    let key = "\"access_token\":\""
+    try
+      let start = response.find(key)? + key.size().isize()
+      let finish = response.find("\"", start)?
+      response.substring(start, finish)
+    else
+      None
     end
 
 primitive _Fixture
@@ -190,12 +343,30 @@ primitive _Get
     "GET " + path + " HTTP/1.1\r\nHost: example.test\r\n" + headers
       + "Connection: close\r\n\r\n"
 
-primitive _Post
-  fun apply(path: String, body: String): String =>
-    "POST " + path + " HTTP/1.1\r\nHost: example.test\r\n"
+primitive _Send
+  """
+  A request with a body, for any method.
+
+  `Content-Length` is computed from `body` rather than written out, so a
+  test that edits one cannot leave the other stale — a mismatch there hangs
+  the connection until the test times out instead of failing.
+  """
+  fun apply(
+    method: String,
+    path: String,
+    body: String,
+    headers: String = "")
+    : String
+  =>
+    method + " " + path + " HTTP/1.1\r\nHost: example.test\r\n"
+      + headers
       + "Content-Length: " + body.size().string() + "\r\n"
       + "Content-Type: application/json\r\n"
       + "Connection: close\r\n\r\n" + body
+
+primitive _Post
+  fun apply(path: String, body: String, headers: String = ""): String =>
+    _Send("POST", path, body, headers)
 
 primitive _TestUser
   fun localpart(): String => "alice"
