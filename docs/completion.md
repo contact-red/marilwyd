@@ -9,10 +9,40 @@ the list that decides what to build next. **Defined** is every endpoint
 matrix-js-sdk can reach; most of it is unreachable until rooms exist, and
 some of it Element never calls at all.
 
-The observed list is a floor, not a ceiling. Every session so far has had
-**no rooms**, so nothing in the `/rooms/` family has appeared. Re-drive
-Element after the first room exists and this document will need a second
-pass — the method is in [next-increment.md](next-increment.md).
+The observed list is a floor, not a ceiling. No driven session has yet
+*created* a room through Element — it cannot reach the UI that would, being
+stuck at the crypto gate — so nothing in the `/rooms/` family appears below
+even though marilwyd now answers five of those endpoints. Re-drive once
+Element gets past crypto and this document needs another pass; the method is
+in [next-increment.md](next-increment.md).
+
+## What a settled session looks like
+
+Since rooms landed, a signed-in client reaches a stable state rather than a
+retry loop. From a real run, with `--log-requests` timestamps in seconds
+since startup:
+
+```text
+[14.390] --> GET /pushrules/          [14.390] <-- 200
+[14.433] --> POST .../filter          [14.433] <-- 200
+[14.474] --> GET /sync                [14.474] <-- 200
+[14.542] --> GET /sync                          (held)
+[22.815] --> GET /room_keys/version   [22.816] <-- 404
+[24.804] --> GET /thirdparty/protocols[24.804] <-- 404
+```
+
+Three things to read out of that. `pushrules` and `filter` are each called
+**once** and never again — before rooms they retried every four seconds
+forever. The first `/sync` answers in under a millisecond, because a client
+with no position is owed everything it can already see. And the second
+`/sync` has no `<--` at all: it is being held, which is the healthy resting
+state and is why the log carries timestamps — an unmatched arrow is normal
+now, and only the gap distinguishes a held sync from a hung one.
+
+The endpoints marilwyd still refuses retry **slowly**, roughly eight to ten
+seconds apart, rather than storming. Element is stuck, but it is not
+hammering, which is worth knowing before treating the crypto gate as
+urgent.
 
 ## Observed: what Element requests today
 
@@ -49,6 +79,12 @@ seconds. See [next-increment.md](next-increment.md).
 `/register` is out of scope permanently: accounts come from a credentials
 file and there is no registration endpoint.
 
+`account_data` is the cheapest thing left. It is requested the moment a
+client signs in, needs no key handling, and is sent **twice within a
+millisecond** — a duplicate from the client rather than a retry after
+failure, which is the same shape `txnId` exists to resolve and worth
+remembering when idempotency comes up.
+
 Everything not answered returns `M_UNRECOGNIZED` in JSON with a 404, on all
 four methods marilwyd routes, so none of it is a parse failure to a client —
 they are simply absent.
@@ -56,7 +92,17 @@ they are simply absent.
 ## Implemented but not observed
 
 marilwyd answers these; Element 1.12.25 did not ask for them in any driven
-session.
+session. Two different reasons, and they matter differently.
+
+The room endpoints and the device ones are unobserved because Element
+**cannot get that far** — the crypto gate stops it before any UI that would
+call them renders. They are exercised by the test suite and by curl, and
+they should move into the observed table the first time a driven session
+reaches them. If one of them is still here after Element gets past crypto,
+that is a signal it is the wrong endpoint, not that it is untested.
+
+`whoami` and the filter fetch are different: Element genuinely does not need
+them on the paths it takes.
 
 | Method | Endpoint | Note |
 |---|---|---|
@@ -66,10 +112,16 @@ session.
 | GET | `devices` | Element's session manager lists from it |
 | POST | `delete_devices` | Element's session manager signs out with it |
 | POST | `createRoom` | Element sends more keys than marilwyd reads |
-| POST | `join/{roomIdOrAlias}` | |
+| POST | `join/{roomIdOrAlias}` | the spelling matrix-js-sdk builds |
 | POST | `rooms/{roomId}/leave` | |
 | PUT | `rooms/{roomId}/send/{type}/{txn}` | `txn` is routed and not read |
 | GET | `rooms/{roomId}/state` | |
+
+`createRoom` is the one to watch. Element sends `preset`, `join_rules`,
+`guest_access` and `m.room.encryption`; marilwyd reads `name` and ignores
+the rest, so a room a client asked to make private and encrypted comes back
+public and unencrypted. Nothing renders that yet, and it becomes a lie the
+moment something does.
 
 ## Defined by matrix-js-sdk, not yet reachable
 
