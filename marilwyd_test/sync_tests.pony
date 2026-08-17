@@ -56,6 +56,7 @@ class \nodoc\ iso _TestSyncWaitRefusesMalformed is UnitTest
       match \exhaustive\ SyncWait(query)
       | let ms: U64 => h.fail(query + " gave " + ms.string())
       | MalformedSyncTimeout => None
+      | UndecodableQuery => h.fail(query + " blamed the query string")
       end
     end
 
@@ -70,7 +71,9 @@ class \nodoc\ iso _TestSyncWaitRefusesUndecodableQuery is UnitTest
   fun apply(h: TestHelper) =>
     match \exhaustive\ SyncWait("timeout=25000&filter=%ZZ")
     | let ms: U64 => h.fail("gave " + ms.string())
-    | MalformedSyncTimeout => None
+    | UndecodableQuery => None
+    | MalformedSyncTimeout =>
+      h.fail("blamed timeout, which was well formed")
     end
 
 class \nodoc\ iso _TestMaxSyncWaitIsUnderTheWatchdog is UnitTest
@@ -100,7 +103,7 @@ primitive _Waited
   fun apply(h: TestHelper, query: (String | None)): U64 =>
     match \exhaustive\ SyncWait(query)
     | let ms: U64 => ms
-    | MalformedSyncTimeout =>
+    | MalformedSyncTimeout | UndecodableQuery =>
       h.fail("refused a well-formed query")
       U64.max_value()
     end
@@ -147,9 +150,9 @@ class \nodoc\ iso _TestSyncAnswersAtOnceWithoutATimeout is UnitTest
           "/_matrix/client/v3/sync?timeout=0",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(r) =>
+      {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
-        h.assert_true(r.contains("next_batch"), r)
+        _AssertJSONKey(h, r, "next_batch", "s0")
       } val)
 
 class \nodoc\ iso _TestSyncHoldsForTheRequestedTimeout is UnitTest
@@ -161,7 +164,6 @@ class \nodoc\ iso _TestSyncHoldsForTheRequestedTimeout is UnitTest
   fun name(): String => "sync/a timeout is held before answering"
 
   fun apply(h: TestHelper) =>
-    let started = Time.nanos()
     _ServeAuthed(
       h,
       {(token) =>
@@ -169,13 +171,15 @@ class \nodoc\ iso _TestSyncHoldsForTheRequestedTimeout is UnitTest
           "/_matrix/client/v3/sync?timeout=1500",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(r)(started) =>
+      {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
-        let held = (Time.nanos() - started) / 1_000_000
-        // Well under 1500 so a slow login cannot make this flap, but far
-        // enough above zero to fail if the wait were skipped entirely.
+        // Bounded on both sides. Without a lower bound the test passes with
+        // the wait removed; without an upper one it passes if the deadline
+        // were armed at the cap instead of at what was asked for.
         h.assert_true(
-          held >= 1_200, "answered after " + held.string() + " ms")
+          held >= 1_400, "answered after only " + held.string() + " ms")
+        h.assert_true(
+          held < 10_000, "answered after " + held.string() + " ms")
       } val)
 
 class \nodoc\ iso _TestSyncRefusesAMalformedTimeout is UnitTest
@@ -193,7 +197,7 @@ class \nodoc\ iso _TestSyncRefusesAMalformedTimeout is UnitTest
           "/_matrix/client/v3/sync?timeout=abc",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(r) =>
+      {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
         _AssertErrcode(h, r, "M_INVALID_PARAM")
       } val)
@@ -226,9 +230,15 @@ class \nodoc\ iso _TestPushRulesServesARuleset is UnitTest
           "/_matrix/client/v3/pushrules/",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(r) =>
+      {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
-        h.assert_true(r.contains("underride"), r)
+        // Every rule kind, not just one: an absent kind and an empty one
+        // are not the same to the client's rules evaluator.
+        for kind in
+          ["content"; "override"; "room"; "sender"; "underride"].values()
+        do
+          h.assert_true(r.contains("\"" + kind + "\":[]"), kind + ": " + r)
+        end
       } val)
 
 class \nodoc\ iso _TestFilterCreateReturnsAnID is UnitTest
@@ -238,15 +248,14 @@ class \nodoc\ iso _TestFilterCreateReturnsAnID is UnitTest
     _ServeAuthed(
       h,
       {(token) =>
-        "POST /_matrix/client/v3/user/%40alice%3Aexample.test/filter"
-          + " HTTP/1.1\r\nHost: example.test\r\n"
-          + "Authorization: Bearer " + token + "\r\n"
-          + "Content-Length: 2\r\nContent-Type: application/json\r\n"
-          + "Connection: close\r\n\r\n{}"
+        _Post(
+          "/_matrix/client/v3/user/%40alice%3Aexample.test/filter",
+          "{}",
+          "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(r) =>
+      {(r, held) =>
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
-        h.assert_true(r.contains("filter_id"), r)
+        _AssertJSONKey(h, r, "filter_id", _TestFilterID())
       } val)
 
 class \nodoc\ iso _TestFilterFetchRequiresAToken is UnitTest
@@ -273,7 +282,176 @@ class \nodoc\ iso _TestNonGetUnimplementedIsJSON is UnitTest
   fun apply(h: TestHelper) =>
     _Serve(
       h,
-      _Post("/_matrix/client/v3/keys/query", "{}"),
+      _Post(_UnimplementedPath(), "{}"),
+      {(r) =>
+        h.assert_false(r.contains("Method Not Allowed"), r)
+        _AssertErrcode(h, r, "M_UNRECOGNIZED")
+      } val)
+
+primitive _TestFilterID
+  """
+  The id `FilterCreated` hands out, and the one the fetch route is asked
+  for. Written once so the two tests cannot drift apart.
+  """
+  fun apply(): String => "0"
+
+// --------------------------------------------- auth precedes any work
+class \nodoc\ iso _TestSyncParsesNothingWithoutAToken is UnitTest
+  """
+  The ordering `_SyncHandler` documents and `SECURITY.md` relies on: a
+  caller with no token learns nothing about the endpoint's parameters.
+
+  A malformed `timeout` is sent deliberately. If the query were parsed
+  before the token were checked, this would answer 400 `M_INVALID_PARAM`
+  and disclose that `timeout` is read at all.
+  """
+  fun name(): String => "sync/no token outranks a malformed parameter"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/_matrix/client/v3/sync?timeout=abc"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestSyncParsesNothingForABadToken is UnitTest
+  """
+  The same ordering one step later: a token that does not resolve is
+  answered before the query string is looked at.
+  """
+  fun name(): String => "sync/a bad token outranks a malformed parameter"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get(
+        "/_matrix/client/v3/sync?timeout=abc",
+        "Authorization: Bearer nosuchtoken\r\n"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_UNKNOWN_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestSyncRefusesAnUndecodableQuery is UnitTest
+  """
+  A good `timeout` behind a bad escape elsewhere. The message has to name
+  the query string rather than `timeout`, which is why the two causes are
+  separate types.
+  """
+  fun name(): String => "sync/an undecodable query is refused by name"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/sync?timeout=1&filter=%ZZ",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
+        _AssertErrcode(h, r, "M_INVALID_PARAM")
+        h.assert_true(r.contains("percent-encoding"), r)
+      } val)
+
+// ------------------------------------------- the halves that were missing
+class \nodoc\ iso _TestFilterCreateRequiresAToken is UnitTest
+  """
+  Discriminating because the catch-all answers a token-less POST with 404:
+  a 401 here can only come from the filter route's own authentication.
+  """
+  fun name(): String => "filter/creating one without a token is refused"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Post("/_matrix/client/v3/user/%40alice%3Aexample.test/filter", "{}"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestFilterFetchServesAnEmptyFilter is UnitTest
+  fun name(): String => "filter/a session gets an empty filter back"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/user/%40alice%3Aexample.test/filter/"
+            + _TestFilterID(),
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(r.contains("{}"), r)
+      } val)
+
+class \nodoc\ iso _TestAuthedJSONRejectsAnUnknownToken is UnitTest
+  """
+  `_AuthedJSON` serves three routes and its stale-token branch was reachable
+  from none of them.
+  """
+  fun name(): String => "pushrules/an unknown token is M_UNKNOWN_TOKEN"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get(
+        "/_matrix/client/v3/pushrules/",
+        "Authorization: Bearer nosuchtoken\r\n"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_UNKNOWN_TOKEN")
+        h.assert_true(r.contains("soft_logout"), r)
+      } val)
+
+// ----------------------------------------- the rest of the catch-all rows
+class \nodoc\ iso _TestUnimplementedPutIsJSON is UnitTest
+  """
+  `PUT` is the method Element sends most often to a path marilwyd does not
+  implement — account data, several times a session.
+  """
+  fun name(): String => "routes/an unimplemented PUT is M_UNRECOGNIZED"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Send("PUT", _UnimplementedPath(), "{}"),
+      {(r) =>
+        h.assert_false(r.contains("Method Not Allowed"), r)
+        h.assert_true(r.contains("HTTP/1.1 404 Not Found\r\n"), r)
+        _AssertErrcode(h, r, "M_UNRECOGNIZED")
+      } val)
+
+class \nodoc\ iso _TestUnimplementedDeleteIsJSON is UnitTest
+  fun name(): String => "routes/an unimplemented DELETE is M_UNRECOGNIZED"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Send("DELETE", _UnimplementedPath(), "{}"),
+      {(r) =>
+        h.assert_false(r.contains("Method Not Allowed"), r)
+        h.assert_true(r.contains("HTTP/1.1 404 Not Found\r\n"), r)
+        _AssertErrcode(h, r, "M_UNRECOGNIZED")
+      } val)
+
+class \nodoc\ iso _TestMatrixRootAnswersEveryMethod is UnitTest
+  """
+  `/_matrix` exactly, which the wildcard provably cannot answer — hobby
+  stops consulting wildcard entries once the path segments run out, so the
+  namespace root needs a companion row per method.
+  """
+  fun name(): String => "routes/the _matrix root answers POST in JSON"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Send("POST", "/_matrix", "{}"),
       {(r) =>
         h.assert_false(r.contains("Method Not Allowed"), r)
         _AssertErrcode(h, r, "M_UNRECOGNIZED")

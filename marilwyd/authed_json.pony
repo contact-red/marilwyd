@@ -50,9 +50,7 @@ actor _AuthedJSONHandler is (hobby.HandlerReceiver & UserReceiver)
     match supplied
     | let t: String => sessions.resolve(t, this)
     else
-      _respond(
-        stallion.StatusUnauthorized,
-        MatrixError("M_MISSING_TOKEN", "Missing access token"))
+      _respond(stallion.StatusUnauthorized, MissingToken())
     end
 
   be token_resolved(user_id: String) =>

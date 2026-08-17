@@ -1,28 +1,25 @@
 # Next increment: what Element needs after `/sync`
 
-Written while the `/sync` measurements were fresh, so the next piece of work
-starts from observation rather than from a fresh reading of a minified
-bundle.
-
 Everything here was measured against **Element 1.12.25** — the version the
 Makefile pins — signed in as a local user, driven through headless Firefox,
-with every request timestamped by `--log-requests`.
+with `--log-requests` on and its output timestamped.
 
 ## What is already true
 
-`/sync` works and the sync loop is healthy. Four consecutive cycles, taken
-from a live session:
+`/sync` works and the sync loop is healthy. Four consecutive cycles from the
+steady state, once the client has stopped catching up:
 
-```
+```text
 --> GET /_matrix/client/v3/sync     <-- 200 after 25.001 s
 --> GET /_matrix/client/v3/sync     <-- 200 after 25.001 s
 --> GET /_matrix/client/v3/sync     <-- 200 after 25.000 s
 --> GET /_matrix/client/v3/sync     <-- 200 after 25.001 s
 ```
 
-Seven syncs in ninety seconds. `/pushrules/` settled after three calls and
-`/filter` after one; before this increment both were retried every few
-seconds, forever.
+Seven syncs in a two-minute session: a short burst of `timeout=0` syncs
+while the client catches up, then the 25-second cadence above for as long as
+it stays open. `/pushrules/` settled after three calls and `/filter` after
+one; before this increment both were retried every few seconds, forever.
 
 ## What still blocks a usable client
 
@@ -44,7 +41,7 @@ client state never moved:
  "rooms":0,"spinner":true}
 ```
 
-`syncState: SYNCING` is the proof that our half is done.
+`syncState: SYNCING` is the proof that the sync half is done.
 
 Two things worth knowing before starting:
 
@@ -60,7 +57,7 @@ Two things worth knowing before starting:
 
 ## Everything Element asked for and did not get
 
-From one ninety-second session. `{userId}` is percent-encoded on the wire.
+From one two-minute session. `{userId}` is percent-encoded on the wire.
 
 | Method | Path |
 |---|---|
@@ -77,11 +74,13 @@ From one ninety-second session. `{userId}` is percent-encoded on the wire.
 | GET | `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device` |
 | GET | `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports` |
 
-All of these now answer `M_UNRECOGNIZED` in JSON rather than a plain-text
-`405`, so none of them is a parse failure — they are simply absent.
+All of these answer `M_UNRECOGNIZED` in JSON, so none of them is a parse
+failure — they are simply absent. For the four non-GET rows that is new:
+before the catch-all covered their methods they got a plain-text `405` with
+no `errcode`, which matrix-js-sdk cannot read at all.
 
 `account_data` is the one that is not crypto and is cheap: Element `PUT`s
-notification settings six times a session and retries because there is
+notification settings once and then retries five times, because there is
 nowhere to put them.
 
 ## Measured: two endpoints clear the gate, and a naive stub is worse
@@ -89,12 +88,13 @@ nowhere to put them.
 Stubbing `POST /keys/query` with empty key maps and `POST /keys/upload` with
 an empty count **does** clear the spinner — the client leaves
 `pendingInitialSync` and advances to Element's `E2E_SETUP` view, which shows
-"Unable to set up keys" because `POST /_matrix/client/v3/keys/device_signing/upload`
-answers `M_UNRECOGNIZED`.
+"Unable to set up keys", because
+`POST /_matrix/client/v3/keys/device_signing/upload` answers
+`M_UNRECOGNIZED`.
 
-**Do not ship that stub.** In the same seventy-second session it produced:
+**Do not ship that stub.** In a seventy-second session it produced:
 
-```
+```text
 10325 --> POST /_matrix/client/v3/keys/query
     5 --> GET  /_matrix/client/v3/sync
 ```
@@ -105,9 +105,9 @@ asked for, so it asks again immediately, forever. That is a worse failure
 than the 404 it replaces: the 404 was retried once per 25-second sync cycle,
 because it rode the sync loop's outgoing-request flush.
 
-The lesson for this increment is that a crypto endpoint answering
-*syntactically* is not the same as answering *usefully*, and the difference
-shows up as a request storm rather than an error. Whatever `keys/query`
+A crypto endpoint answering *syntactically* is not the same as answering
+*usefully*, and the difference shows up as a request storm rather than an
+error. Whatever `keys/query`
 returns has to satisfy the machine's notion of a completed query for the
 device it asked about — which means the device id has to be real.
 
@@ -129,8 +129,9 @@ device it asked about — which means the device id has to be real.
 ## How to re-run the probe
 
 The spike that produced these numbers lives outside the repository, but it is
-small: build the server, run it with `--log-requests`, drive Element with a
-Marionette script that signs in and then samples
+small: build the server, run it with `--log-requests` piped through
+something that stamps each line with a monotonic clock, then drive Element
+with a Marionette script that signs in and samples
 `mxMatrixClientPeg.get().getSyncState()` and `document.body.innerText` every
 ten seconds. The client-state sampling is what distinguishes "stuck" from
 "slow"; a screenshot alone does not.

@@ -27,11 +27,22 @@ primitive MaxSyncWait
 
 primitive MalformedSyncTimeout
   """
-  A `timeout` query parameter that is not a whole number of milliseconds,
-  or a query string that is not valid percent-encoding.
+  A `timeout` query parameter that is not a whole number of milliseconds.
   """
   fun message(): String =>
     "timeout must be a whole number of milliseconds"
+
+primitive UndecodableQuery
+  """
+  A query string that is not valid percent-encoding.
+
+  Separate from `MalformedSyncTimeout` because the two reach a client for
+  different reasons and only one of them is about `timeout`: a query
+  decodes whole or not at all, so `?timeout=25000&filter=%ZZ` fails here
+  with a perfectly good `timeout`.
+  """
+  fun message(): String =>
+    "query string is not valid percent-encoding"
 
 primitive SyncWait
   """
@@ -46,13 +57,15 @@ primitive SyncWait
   flood. `?timeout=25000&filter=%ZZ` is enough, because a query string
   either decodes whole or not at all.
   """
-  fun apply(query: (String | None)): (U64 | MalformedSyncTimeout) =>
+  fun apply(query: (String | None))
+    : (U64 | MalformedSyncTimeout | UndecodableQuery)
+  =>
     let params =
       match query
       | let q: String =>
         match \exhaustive\ uri.ParseQueryParameters(q)
         | let p: uri.QueryParams val => p
-        | let _: uri.InvalidPercentEncoding val => return MalformedSyncTimeout
+        | let _: uri.InvalidPercentEncoding val => return UndecodableQuery
         end
       else
         return 0
@@ -86,7 +99,10 @@ class val _Sync
   the instant it is answered — measured at 36 syncs a second against
   Element 1.12.25 when the answer is immediate.
 
-  One `Timers` for the process: `Routes` builds one `_Sync`.
+  One `Timers` per `_Sync`, and `Routes` builds one `_Sync` per call — so
+  one per server, not one per process, and nothing disposes it. hobby's own
+  `Server` keeps a second wheel for its handler watchdog, so a held sync is
+  timed by two independent ones.
   """
   let _sessions: SessionRegistry tag
   let _timers: Timers tag = Timers
@@ -103,12 +119,13 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
   """
   Waits out one client's `/sync`, then answers it.
 
-  Four states, and no field records them because only one input has to
-  branch on where it arrives. *Authenticating*: the registry has been
-  asked. *Waiting*: `_timer` is set. *Answered*: held by construction —
-  `hobby.RequestHandler` makes `respond_with_headers` idempotent and the
-  connection drops a response whose request has already finished.
-  *Abandoned*: `_disposed`.
+  Answering at most once is not this actor's job: `hobby.RequestHandler`
+  makes `respond_with_headers` idempotent, and the connection drops a
+  response whose request has already finished. So a late deadline is inert
+  rather than wrong, and only one ordering needs a guard — `dispose`
+  arriving before `token_resolved`, where arming a deadline would keep this
+  actor, its request and its connection alive for the whole wait after the
+  socket had already gone.
 
   The token is checked before anything else happens, so an unauthenticated
   caller can neither park a timer nor make marilwyd parse a query string.
@@ -134,9 +151,7 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
     match supplied
     | let t: String => sessions.resolve(t, this)
     else
-      _respond(
-        stallion.StatusUnauthorized,
-        MatrixError("M_MISSING_TOKEN", "Missing access token"))
+      _respond(stallion.StatusUnauthorized, MissingToken())
     end
 
   be token_resolved(user_id: String) =>
@@ -158,10 +173,8 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
       else
         _arm(ms)
       end
-    | MalformedSyncTimeout =>
-      _respond(
-        stallion.StatusBadRequest,
-        MatrixError("M_INVALID_PARAM", MalformedSyncTimeout.message()))
+    | MalformedSyncTimeout => _refuse(MalformedSyncTimeout.message())
+    | UndecodableQuery => _refuse(UndecodableQuery.message())
     end
 
   be token_rejected() =>
@@ -189,6 +202,10 @@ actor _SyncHandler is (hobby.HandlerReceiver & UserReceiver)
   fun ref _answer() =>
     _handler.respond_with_headers(
       stallion.StatusOK, _JSONHeaders(), EmptySync())
+
+  fun ref _refuse(why: String) =>
+    _respond(
+      stallion.StatusBadRequest, MatrixError("M_INVALID_PARAM", why))
 
   fun ref _respond(status: stallion.Status, body: String) =>
     _cancel()

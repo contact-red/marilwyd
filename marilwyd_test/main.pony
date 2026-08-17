@@ -1,4 +1,5 @@
 use "pony_test"
+use "time"
 use "files"
 use "ssl/crypto"
 use "../marilwyd"
@@ -70,6 +71,15 @@ actor Main is TestList
     test(_TestFilterCreateReturnsAnID)
     test(_TestFilterFetchRequiresAToken)
     test(_TestNonGetUnimplementedIsJSON)
+    test(_TestSyncParsesNothingWithoutAToken)
+    test(_TestSyncParsesNothingForABadToken)
+    test(_TestSyncRefusesAnUndecodableQuery)
+    test(_TestFilterCreateRequiresAToken)
+    test(_TestFilterFetchServesAnEmptyFilter)
+    test(_TestAuthedJSONRejectsAnUnknownToken)
+    test(_TestUnimplementedPutIsJSON)
+    test(_TestUnimplementedDeleteIsJSON)
+    test(_TestMatrixRootAnswersEveryMethod)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
@@ -175,11 +185,16 @@ primitive _Serve
               server,
               {(resp)(check, h) => check(resp); h.complete(true) } val)
           } val)
-      hobby.Server(
-        lori.TCPListenAuth(h.env.root),
-        built,
-        notify
-        where host = _TestHost(), port = config.bind_port)
+      // Disposed when the test ends however it ends. A long test that
+      // times out would otherwise leak the listener, and `/sync` is the
+      // first handler whose correct behaviour is to not answer yet.
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
     | let e: hobby.ConfigError =>
       h.fail(e.message)
       h.complete(false)
@@ -223,11 +238,17 @@ primitive _ServeAuthed
   path was reachable from a test before this.
 
   `build` receives the access token and returns the raw request to send.
+  `check` receives the raw response and the milliseconds that request took.
+
+  The timing is measured here rather than by the caller because only here
+  is the login already done: a test that stamps its own clock before this
+  runs is measuring configuration, a bind and a PBKDF2 derivation as well,
+  which can only inflate the figure and so can only make an assertion pass.
   """
   fun apply(
     h: TestHelper,
     build: {(String): String} val,
-    check: {(String)} val)
+    check: {(String, U64)} val)
   =>
     h.long_test(10_000_000_000)
 
@@ -254,12 +275,16 @@ primitive _ServeAuthed
               {(login)(connect_auth, port, build, check, h, server) =>
                 match _TokenFrom(login)
                 | let token: String =>
+                  let sent = Time.nanos()
                   _TestClient(
                     connect_auth,
                     port,
                     build(token),
                     server,
-                    {(resp)(check, h) => check(resp); h.complete(true) } val)
+                    {(resp)(check, h, sent) =>
+                      check(resp, (Time.nanos() - sent) / 1_000_000)
+                      h.complete(true)
+                    } val)
                 else
                   h.fail("login did not yield an access token: " + login)
                   h.complete(false)
@@ -268,11 +293,16 @@ primitive _ServeAuthed
               } val
               where close_server = false)
           } val)
-      hobby.Server(
-        lori.TCPListenAuth(h.env.root),
-        built,
-        notify
-        where host = _TestHost(), port = config.bind_port)
+      // Disposed when the test ends however it ends. A long test that
+      // times out would otherwise leak the listener, and `/sync` is the
+      // first handler whose correct behaviour is to not answer yet.
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
     | let e: hobby.ConfigError =>
       h.fail(e.message)
       h.complete(false)
@@ -313,12 +343,30 @@ primitive _Get
     "GET " + path + " HTTP/1.1\r\nHost: example.test\r\n" + headers
       + "Connection: close\r\n\r\n"
 
-primitive _Post
-  fun apply(path: String, body: String): String =>
-    "POST " + path + " HTTP/1.1\r\nHost: example.test\r\n"
+primitive _Send
+  """
+  A request with a body, for any method.
+
+  `Content-Length` is computed from `body` rather than written out, so a
+  test that edits one cannot leave the other stale — a mismatch there hangs
+  the connection until the test times out instead of failing.
+  """
+  fun apply(
+    method: String,
+    path: String,
+    body: String,
+    headers: String = "")
+    : String
+  =>
+    method + " " + path + " HTTP/1.1\r\nHost: example.test\r\n"
+      + headers
       + "Content-Length: " + body.size().string() + "\r\n"
       + "Content-Type: application/json\r\n"
       + "Connection: close\r\n\r\n" + body
+
+primitive _Post
+  fun apply(path: String, body: String, headers: String = ""): String =>
+    _Send("POST", path, body, headers)
 
 primitive _TestUser
   fun localpart(): String => "alice"

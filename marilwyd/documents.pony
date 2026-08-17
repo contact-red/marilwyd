@@ -121,6 +121,14 @@ primitive EmptySync
   this document alone and never enters an error state. Adding
   `rooms`/`presence`/`account_data` changed nothing, so they are not here.
   Re-check when the Element version changes, or when there are rooms.
+
+  Omitting `to_device` is load-bearing rather than merely minimal.
+  matrix-js-sdk pins `timeout=0` while it believes it is catching up, and
+  clears that only on a sync whose `to_device.events` is absent or empty —
+  so this document is what moves the client onto the 25-second cadence. A
+  future `to_device` carrying events puts it back into immediate re-asking,
+  which is correct there but is the same shape as the request storm this
+  endpoint exists to prevent.
   """
   fun apply(): String =>
     JsonPrinter.print(JsonObject.update("next_batch", "s0"))
@@ -155,9 +163,15 @@ primitive FilterCreated
   The other endpoint matrix-js-sdk awaits before its first `/sync`. The
   request body is not read: no filter can change an empty set of events.
 
-  A constant id, and clients store it. `getOrCreateFilter` sends it back
-  on a later load rather than creating another, which is why the matching
-  `GET` exists at all.
+  A constant id, and clients store it. The matching `GET` exists because a
+  returning client sends the stored id back before deciding what to do with
+  it, and matrix-js-sdk rethrows any errcode there other than `M_UNKNOWN`
+  or `M_NOT_FOUND` — so answering `M_UNRECOGNIZED` would strand it.
+
+  It will not reuse the filter, whatever this returns: reuse needs the
+  stored definition to match the one being requested, and element-web asks
+  for `lazy_load_members` unconditionally while `EmptyFilter` answers `{}`.
+  Every session creates another. Harmless while the id is a constant.
   """
   fun apply(): String =>
     JsonPrinter.print(JsonObject.update("filter_id", "0"))
@@ -175,6 +189,16 @@ primitive EmptyFilter
   giving filters storage rather than a constant.
   """
   fun apply(): String => JsonPrinter.print(JsonObject)
+
+primitive MissingToken
+  """
+  The body for a request to an authenticated endpoint that offered no token.
+
+  Distinct from `UnknownToken`: nothing was presented, so there is no session
+  to report as gone and no `soft_logout` to offer.
+  """
+  fun apply(): String =>
+    MatrixError("M_MISSING_TOKEN", "Missing access token")
 
 primitive UnknownToken
   """

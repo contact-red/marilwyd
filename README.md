@@ -18,9 +18,9 @@ It clears its "Syncing…" screen only once a first sync *and* a cross-signing
 key query have both completed. marilwyd implements no crypto endpoints, so
 `POST /_matrix/client/v3/keys/query` answers `M_UNRECOGNIZED`, matrix-js-sdk
 retries it forever, and the screen stays. Underneath it the sync loop is
-healthy — measured at one request per 25 seconds against Element 1.12.25,
-where before this the client re-asked several times a second. Crypto is the
-next piece of work; see `docs/next-increment.md`.
+healthy: once the client stops catching up it re-asks every 25 seconds,
+where before this it re-asked several times a second. Crypto is the next
+piece of work; see `docs/next-increment.md`.
 
 Out of scope: the Application Service API, permanently — IRC and Discord
 bridging will be built natively instead. Federation, for now.
@@ -112,6 +112,7 @@ marilwyd serve \
 | `--scheme` | no | `http` |
 | `--bind-host` | no | `127.0.0.1` |
 | `--bind-port` | no | the port in `--server-name`, else 8008 |
+| `--log-requests` | no | off |
 
 `--server-name` is the only identity input. The advertised `base_url` is
 computed from it, so Element cannot be handed an address for a different
@@ -129,6 +130,12 @@ marilwyd: listening on 127.0.0.1:8008
 
 If those two disagree and nothing is proxying between them, the browser will
 load Element and every Matrix call will fail as cross-origin.
+
+`--log-requests` prints each request as it arrives and each response as it
+leaves, stamped with seconds since startup. The stamp is what makes a held
+`/sync` legible: one unanswered arrow per signed-in client is the healthy
+resting state, so the gap between a pair is the thing to read, not the
+absence of one. Paths are logged and query strings never are.
 
 A port below 1024 *derived* from `--server-name` is refused, since
 `--server-name contact.red:443` is legal Matrix and would otherwise turn an
@@ -157,7 +164,6 @@ public.
 | GET | `/element/config.<host>.json` | Element probes this first |
 | GET | `/element/bundles/*` | content-hashed; `immutable` |
 | GET | `/element/*` | the Element tree; `no-cache` |
-| GET | `/_matrix` | `M_UNRECOGNIZED` |
 | GET | `/_matrix/client/versions` | `["v1.1"]` |
 | GET | `/_matrix/client/v3/login` | the password flow |
 | POST | `/_matrix/client/v3/login` | verifies a password, issues a token |
@@ -166,18 +172,22 @@ public.
 | GET | `/_matrix/client/v3/pushrules/` | an empty ruleset |
 | POST | `/_matrix/client/v3/user/:userId/filter` | a constant `filter_id` |
 | GET | `/_matrix/client/v3/user/:userId/filter/:filterId` | an empty filter |
+| GET, POST, PUT, DELETE | `/_matrix` | `M_UNRECOGNIZED` |
 | GET, POST, PUT, DELETE | `/_matrix/*` | `M_UNRECOGNIZED` |
 
 The catch-all covers four methods rather than just GET. A method with no row
-of its own is answered by the HTTP framework, with a plain-text
-`405 Method Not Allowed` carrying no `errcode` — which matrix-js-sdk cannot
-read, and so retries forever. Element reaches this on every session.
+of its own is answered by hobby, with a plain-text `405 Method Not Allowed`
+carrying no `errcode` — which matrix-js-sdk cannot read, and so retries
+forever. Element reaches this on every session. `OPTIONS` and `PATCH` are
+not covered: a browser preflight needs CORS headers, which an
+`M_UNRECOGNIZED` row would not supply either, so that is a known gap rather
+than an oversight.
 
 `/sync` holds a request open for as long as the client asked, up to 25
 seconds. Answering an empty sync immediately is legal and catastrophic: the
 client re-asks at once, measured at 36 syncs a second. The cap sits under
-the framework's own 30-second handler timeout, which would otherwise answer
-`504` with no `errcode` and put the client into a permanent reconnect flap.
+hobby's own 30-second handler timeout, which would otherwise answer `504`
+with no `errcode` and put the client into a permanent reconnect flap.
 
 Sessions live in memory only, so a restart logs everyone out. That is
 deliberate: there is nothing worth persisting until rooms and events exist.
