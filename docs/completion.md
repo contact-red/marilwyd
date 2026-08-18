@@ -135,6 +135,17 @@ them on the paths it takes.
 | GET | `rooms/{roomId}/state` | |
 | POST | `keys/claim` | no second device has claimed one yet |
 | PUT | `sendToDevice/{type}/{txn}` | Element sends none with one device |
+| GET | `directory/room/{roomAlias}` | driven through the client's own SDK |
+| GET | `publicRooms` | driven through the client's own SDK |
+| POST | `publicRooms` | what a search in Explore sends |
+
+The three directory rows were driven through Element's own matrix-js-sdk
+rather than by clicking Explore — `publicRooms` listed the room with its
+name and alias, `getRoomIdForAlias` resolved it, and `joinRoom` joined by
+alias. That is stronger evidence than curl and weaker than a driven UI, and
+the distinction is the reason this table exists. Element itself calls
+`publicRooms` with a `GET` when it opens the dialog and a `POST` once
+anyone types, which is why both are implemented.
 
 `keys/claim` and `sendToDevice` are here for a specific reason. A single
 signed-in device has nothing to talk to, so Element never calls either in a
@@ -192,9 +203,11 @@ the media namespace.
 **Account management** — `POST /account/password`, `POST /account/deactivate`,
 the `/account/3pid` family, `POST /refresh`, `POST /login/get_token`.
 
-**Directory and search** — `GET`/`POST /publicRooms`,
-`POST /user_directory/search`, `POST /search`, `GET /notifications`,
-`GET`/`POST /pushers`, `GET /register/available`.
+**Directory and search** — `POST /user_directory/search`, `POST /search`,
+`GET /notifications`, `GET`/`POST /pushers`, `GET /register/available`, and
+`PUT`/`DELETE /directory/room/{roomAlias}` — the last two would let a client
+add or remove an alias after a room exists, which Element offers in room
+settings and which nothing here has needed yet.
 
 **Profile** — `PUT /profile/{userId}/{key}`, `DELETE /profile/{userId}/{key}`.
 

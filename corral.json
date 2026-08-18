@@ -2,6 +2,10 @@
   "packages": [],
   "deps": [
     {
+      "locator": "/home/red/projects/contact.red/irc",
+      "version": ""
+    },
+    {
       "locator": "github.com/ponylang/hobby.git",
       "version": "0.10.0"
     },

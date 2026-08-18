@@ -66,7 +66,11 @@ class \nodoc\ iso _TestRoomReachesItsMembersDevices is UnitTest
       alice.attach("laptop", device)
 
       let room = Room(_AnyRoomId()?)
-      room.created_by("@alice:example.test", alice, None, _IgnoreCreation)
+      room.created_by(
+          "@alice:example.test",
+          alice,
+          CreateRoomRequest(None, None, false),
+          _IgnoreCreation)
 
       device.sync(USize(0), 25_000, _ExpectWoken(h, "hello from a room"))
       room.send(
@@ -96,13 +100,21 @@ class \nodoc\ iso _TestRoomReachesNobodyOutsideIt is UnitTest
 
       let alice = User("@alice:example.test")
       let alice_room = Room(_AnyRoomId()?)
-      alice_room.created_by("@alice:example.test", alice, None, _IgnoreCreation)
+      alice_room.created_by(
+          "@alice:example.test",
+          alice,
+          CreateRoomRequest(None, None, false),
+          _IgnoreCreation)
 
       let bob_device = Device(_AnyDeviceId()?, epoch)
       let bob = User("@bob:example.test")
       bob.attach("laptop", bob_device)
       let bob_room = Room(_AnyRoomId()?)
-      bob_room.created_by("@bob:example.test", bob, None, _IgnoreCreation)
+      bob_room.created_by(
+          "@bob:example.test",
+          bob,
+          CreateRoomRequest(None, None, false),
+          _IgnoreCreation)
 
       bob_device.sync(USize(0), 25_000, _ExpectWoken(h, "for bob only"))
 
@@ -199,7 +211,11 @@ class \nodoc\ iso _TestSendingToARoomYouAreNotInIsRefused is UnitTest
       let alice = User("@alice:example.test")
       let room =
         Room(_AnyRoomId()?)
-          .> created_by("@alice:example.test", alice, None, _IgnoreCreation)
+          .> created_by(
+          "@alice:example.test",
+          alice,
+          CreateRoomRequest(None, None, false),
+          _IgnoreCreation)
 
       room.send(
         "@bob:example.test",
@@ -222,7 +238,11 @@ class \nodoc\ iso _TestAMemberMaySend is UnitTest
       let alice = User("@alice:example.test")
       let room =
         Room(_AnyRoomId()?)
-          .> created_by("@alice:example.test", alice, None, _IgnoreCreation)
+          .> created_by(
+          "@alice:example.test",
+          alice,
+          CreateRoomRequest(None, None, false),
+          _IgnoreCreation)
 
       room.send(
         "@alice:example.test",
@@ -505,4 +525,5 @@ actor \nodoc\ _IgnoreCreation is RoomCreationReceiver
   subject.
   """
   be room_created(room: RoomId) => None
+  be alias_taken() => None
   be room_refused() => None

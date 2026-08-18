@@ -98,10 +98,18 @@ primitive Routes
         "/_matrix/client/v3/delete_devices",
         _DeleteDevices(sessions))
       .> get("/_matrix/client/v3/sync", _Sync(sessions, epoch))
-      .> post("/_matrix/client/v3/createRoom", _CreateRoom(sessions, rooms))
+      .> post("/_matrix/client/v3/createRoom", _CreateRoom(sessions, rooms, hs))
       // `/join/{roomIdOrAlias}` and not `/rooms/{roomId}/join`: the former
       // is what matrix-js-sdk builds and the latter has no call site in
       // any client marilwyd ships.
+      // How a person finds a room without being handed its id. A bridged
+      // channel is published with an alias, so Element's Explore dialog
+      // lists it and joining is a click rather than a paste.
+      .> get(
+        "/_matrix/client/v3/directory/room/:roomAlias",
+        _ResolveAlias(sessions, rooms, hs))
+      .> get("/_matrix/client/v3/publicRooms", _PublicRooms(sessions, rooms))
+      .> post("/_matrix/client/v3/publicRooms", _PublicRooms(sessions, rooms))
       .> post(
         "/_matrix/client/v3/join/:roomIdOrAlias",
         _JoinRoom(sessions, rooms))

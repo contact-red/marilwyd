@@ -7,7 +7,7 @@ web client — one origin, one process.
 
 **Element signs in and reaches the app.** A local user logs in, the client
 settles into a real sync loop instead of retrying, finishes setting up
-encryption keys, and renders the room list. Twenty-six Matrix endpoints,
+encryption keys, and renders the room list. Twenty-nine Matrix endpoints,
 listed below.
 
 One account can be signed in from several clients at once — a browser, a
@@ -34,6 +34,12 @@ A settled session costs five syncs and one `keys/query` per seventy
 seconds. That number is in the README because the naive version of the same
 endpoint — answering `keys/query` with empty key maps — produced 10,325
 requests in the same span.
+
+A room may be published in the directory and given an alias — `#pony:…` —
+which is how a person finds a room without being handed its id. Publishing
+one is deliberate rather than incidental: a room id is the entire access
+control, so a listed room is one anybody signed in may join, and
+`SECURITY.md` says what follows from that.
 
 Out of scope: the Application Service API, permanently — IRC and Discord
 bridging will be built natively instead. Federation, for now.
@@ -196,6 +202,9 @@ public.
 | GET | `/_matrix/client/v3/room_keys/version` | the current one |
 | POST | `/_matrix/client/v3/keys/claim` | spends a device's one-time key |
 | PUT | `/_matrix/client/v3/sendToDevice/:type/:txn` | one device to another |
+| GET | `/_matrix/client/v3/directory/room/:roomAlias` | an alias to a room id |
+| GET | `/_matrix/client/v3/publicRooms` | the public room directory |
+| POST | `/_matrix/client/v3/publicRooms` | the same, as a search sends it |
 | GET, POST, PUT, DELETE | `/_matrix` | `M_UNRECOGNIZED` |
 | GET, POST, PUT, DELETE | `/_matrix/*` | `M_UNRECOGNIZED` |
 
