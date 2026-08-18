@@ -275,8 +275,16 @@ actor User
     end
 
   be departed(room_id: String) =>
+    """
+    This account has left a room. Every device is told, because each holds
+    that room's state for its next fresh sync and would otherwise go on
+    being told about a room its owner is no longer in.
+    """
     try
       (_, _) = _rooms.remove(room_id)?
+    end
+    for device in _devices.values() do
+      device.forget_room(room_id)
     end
 
   be deliver(event: RoomEvent) =>

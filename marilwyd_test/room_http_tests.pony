@@ -193,3 +193,88 @@ primitive _Encoded
         s'
       end
     out
+
+class \nodoc\ iso _TestAnOversizedCreateIsRefused is UnitTest
+  """
+  `createRoom` was the one body-reading endpoint with no bound at all — it
+  parsed up to the transport cap while every other path had a size limit
+  and, for a login, a depth one too.
+  """
+  fun name(): String => "rooms/an oversized create request is refused"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        let padding =
+          recover val
+            String(MaxCreateBody() + 64) .> append(
+              "a" * (MaxCreateBody() + 32))
+          end
+        _Post(
+          "/_matrix/client/v3/createRoom",
+          "{\"name\":\"" + padding + "\"}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
+        _AssertErrcode(h, r, "M_TOO_LARGE")
+      } val)
+
+class \nodoc\ iso _TestADeeplyNestedCreateIsRefused is UnitTest
+  """
+  The shape half of the bound. A body can sit under the size limit and
+  still cost a parser frame per level, which is the amplification the
+  login limits were added to close and which this path never had.
+  """
+  fun name(): String => "rooms/a deeply nested create request is refused"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/createRoom",
+          _Nested(MaxCreateDepth() + 4),
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
+        _AssertErrcode(h, r, "M_BAD_JSON")
+      } val)
+
+class \nodoc\ iso _TestADeeplyNestedEventIsRefused is UnitTest
+  """
+  `MaxEventDepth` was declared, documented with the reason a shape bound
+  exists at all, and then applied to nothing. Only the byte half of the
+  bound was real until this test.
+  """
+  fun name(): String => "rooms/a deeply nested event is refused"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthedChain(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/createRoom",
+          "{\"name\":\"pony\"}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(token, login, created) =>
+        let room =
+          match _RoomFrom(created)
+          | let id: String => _Encoded(id)
+          else
+            "!missing"
+          end
+        _Send(
+          "PUT",
+          "/_matrix/client/v3/rooms/" + room + "/send/m.room.message/1",
+          _Nested(MaxEventDepth() + 4),
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
+        _AssertErrcode(h, r, "M_BAD_JSON")
+        h.assert_true(r.contains("nested more deeply"), r)
+      } val)

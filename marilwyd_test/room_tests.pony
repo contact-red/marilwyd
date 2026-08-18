@@ -97,8 +97,8 @@ class \nodoc\ iso _TestRoomMembershipComesAndGoes is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      room.join("@alice:example.test", 0)
-      room.join("@bob:example.test", 1)
+      room.join("@alice:example.test")
+      room.join("@bob:example.test")
       h.assert_eq[USize](2, room.members().size())
       room.leave("@bob:example.test")
       h.assert_eq[USize](1, room.members().size())

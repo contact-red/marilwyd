@@ -65,8 +65,8 @@ class \nodoc\ iso _TestRoomReachesItsMembersDevices is UnitTest
       let alice = User("@alice:example.test")
       alice.attach("laptop", device)
 
-      let room = Room(_AnyRoomId()?, "example.test")
-      room.created_by("@alice:example.test", alice, None)
+      let room = Room(_AnyRoomId()?)
+      room.created_by("@alice:example.test", alice, None, _IgnoreCreation)
 
       device.sync(USize(0), 25_000, _ExpectWoken(h, "hello from a room"))
       room.send(
@@ -95,14 +95,14 @@ class \nodoc\ iso _TestRoomReachesNobodyOutsideIt is UnitTest
       let epoch = _AnyEpoch()?
 
       let alice = User("@alice:example.test")
-      let alice_room = Room(_AnyRoomId()?, "example.test")
-      alice_room.created_by("@alice:example.test", alice, None)
+      let alice_room = Room(_AnyRoomId()?)
+      alice_room.created_by("@alice:example.test", alice, None, _IgnoreCreation)
 
       let bob_device = Device(_AnyDeviceId()?, epoch)
       let bob = User("@bob:example.test")
       bob.attach("laptop", bob_device)
-      let bob_room = Room(_AnyRoomId()?, "example.test")
-      bob_room.created_by("@bob:example.test", bob, None)
+      let bob_room = Room(_AnyRoomId()?)
+      bob_room.created_by("@bob:example.test", bob, None, _IgnoreCreation)
 
       bob_device.sync(USize(0), 25_000, _ExpectWoken(h, "for bob only"))
 
@@ -198,8 +198,8 @@ class \nodoc\ iso _TestSendingToARoomYouAreNotInIsRefused is UnitTest
     try
       let alice = User("@alice:example.test")
       let room =
-        Room(_AnyRoomId()?, "example.test")
-          .> created_by("@alice:example.test", alice, None)
+        Room(_AnyRoomId()?)
+          .> created_by("@alice:example.test", alice, None, _IgnoreCreation)
 
       room.send(
         "@bob:example.test",
@@ -221,8 +221,8 @@ class \nodoc\ iso _TestAMemberMaySend is UnitTest
     try
       let alice = User("@alice:example.test")
       let room =
-        Room(_AnyRoomId()?, "example.test")
-          .> created_by("@alice:example.test", alice, None)
+        Room(_AnyRoomId()?)
+          .> created_by("@alice:example.test", alice, None, _IgnoreCreation)
 
       room.send(
         "@alice:example.test",
@@ -285,7 +285,8 @@ class \nodoc\ iso _TestAWokenSyncCarriesNoState is UnitTest
       // Built outside the `recover`: `RoomState` is `ref` and so reads as
       // `tag` inside one, while a `RoomEvent` is `val` and passes freely.
       let named = _State(room, "m.room.name", "", "{\"name\":\"pony\"}", 0)?
-      device.room_state(recover val [named] end)
+      let id: String = room.id.string()
+      device.room_state(id, recover val [named] end)
       device.sync(USize(0), 25_000, _ExpectNoState(h))
       device.deliver(_Message(room, "@alice:example.test", 1)?)
     else
@@ -373,3 +374,135 @@ actor _ExpectNoAccountData is SyncReceiver
       0, view.account.size(), "account data was sent again")
     _h.assert_false(SyncDocument(view).contains("account_data"))
     _h.complete(true)
+
+class \nodoc\ iso _TestADeviceInTwoRoomsSeesBoth is UnitTest
+  """
+  A device holds one room's state per room, not one room's state.
+
+  Held as a single array, whichever room described itself last replaced
+  the rest, so a client signing in saw exactly one of its rooms — the
+  others appeared only when someone spoke in them, untitled. Nothing
+  caught it: no test put one device in two rooms, and a driven Element
+  session only ever signs in.
+  """
+  fun name(): String => "sync/a device in two rooms is told about both"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
+      let kitchen = _AnyRoom()?
+      let garden = _AnyRoom()?
+      let kitchen_id: String = kitchen.id.string()
+      let garden_id: String = garden.id.string()
+      // Built outside the `recover` blocks, for the reason the test above
+      // records: `RoomState` is `ref` and reads as `tag` inside one.
+      let in_kitchen =
+        _State(kitchen, "m.room.name", "", "{\"name\":\"kitchen\"}", 0)?
+      let in_garden =
+        _State(garden, "m.room.name", "", "{\"name\":\"garden\"}", 0)?
+      device
+        .> room_state(kitchen_id, recover val [in_kitchen] end)
+        .> room_state(garden_id, recover val [in_garden] end)
+        // No position: a fresh sync is the only one that carries state.
+        .> sync(None, 0, _ExpectBothRooms(h))
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _ExpectBothRooms is SyncReceiver
+  let _h: TestHelper
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be synced(view: SyncView) =>
+    let rendered = SyncDocument(view)
+    _h.assert_eq[USize](2, view.state.size(), rendered)
+    _h.assert_true(rendered.contains("kitchen"), rendered)
+    _h.assert_true(rendered.contains("garden"), rendered)
+    _h.complete(true)
+
+class \nodoc\ iso _TestLeavingARoomStopsDescribingIt is UnitTest
+  """
+  The other half of keeping state per room: a room left behind would be
+  described on every fresh sync for the life of the process. Holding one
+  array hid this by discarding everything whenever another room spoke.
+
+  Driven through `User.departed` rather than by calling `forget_room` on
+  the device. Calling it directly tests that the method works and says
+  nothing about whether anything calls it — which is what the first
+  version of this test did, and mutation caught it.
+  """
+  fun name(): String => "sync/a device stops being told about a room it left"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      let kitchen = _AnyRoom()?
+      let garden = _AnyRoom()?
+      _LeaveThenSync(
+        h,
+        Device(_AnyDeviceId()?, _AnyEpoch()?),
+        kitchen.id.string(),
+        garden.id.string(),
+        _State(kitchen, "m.room.name", "", "{\"name\":\"kitchen\"}", 0)?,
+        _State(garden, "m.room.name", "", "{\"name\":\"garden\"}", 0)?)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _LeaveThenSync is (RoomListReceiver & SyncReceiver)
+  """
+  Describes two rooms to a device, leaves one through the `User`, and then
+  reads the device's fresh sync.
+
+  The round trip through `rooms` is load-bearing. `forget_room` travels
+  from the `User` to the `Device` while this actor's sync travels from
+  here, and Pony orders messages per sender rather than globally — so
+  syncing straight after `departed` would race the very message the test
+  exists to observe.
+  """
+  let _h: TestHelper
+  let _device: Device
+  let _user: User
+
+  new create(
+    h: TestHelper,
+    device: Device,
+    kitchen_id: String,
+    garden_id: String,
+    in_kitchen: RoomEvent,
+    in_garden: RoomEvent)
+  =>
+    _h = h
+    _device = device
+    device
+      .> room_state(kitchen_id, recover val [in_kitchen] end)
+      .> room_state(garden_id, recover val [in_garden] end)
+
+    _user = User("@alice:example.test")
+    _user
+      .> attach("DEVICE", device)
+      .> departed(garden_id)
+      .> rooms(this)
+
+  be rooms_listed(rooms: Array[String] val) =>
+    _device.sync(None, 0, this)
+
+  be synced(view: SyncView) =>
+    let rendered = SyncDocument(view)
+    _h.assert_eq[USize](1, view.state.size(), rendered)
+    _h.assert_true(rendered.contains("kitchen"), rendered)
+    _h.assert_false(
+      rendered.contains("garden"),
+      "a room the account left was still described: " + rendered)
+    _h.complete(true)
+
+actor \nodoc\ _IgnoreCreation is RoomCreationReceiver
+  """
+  For tests driving a room where the creation's own answer is not the
+  subject.
+  """
+  be room_created(room: RoomId) => None
+  be room_refused() => None
