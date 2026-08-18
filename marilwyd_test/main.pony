@@ -55,6 +55,54 @@ actor Main is TestList
     test(_TestCredentialsRejectNarrowingIterations)
     test(_TestCredentialsRejectBadLocalpart)
     test(_TestUnimplementedRejectsStaleToken)
+    test(_TestSignaturesAreMergedNotSubstituted)
+    test(_TestSignaturesAccumulate)
+    test(_TestAQueryAlwaysAnswersAboutTheAsker)
+    test(_TestAQueryDoesNotNameTheAskerTwice)
+    test(_TestAnUnknownAccountStillGetsAnEntry)
+    test(_TestAQueryCarriesPublishedDeviceKeys)
+    test(_TestACrossSigningKeyIsFoundByItsOwnKey)
+    test(_TestOneTimeKeysAreSplitIntoPairs)
+    test(_TestOneTimeKeysAreCounted)
+    test(_TestAnUploadedKeyIsNotReplaced)
+    test(_TestTheKeyPoolIsBounded)
+    test(_TestUserSigningIsWithheldFromOthers)
+    test(_TestUserSigningReachesItsOwner)
+    test(_TestAPartialCrossSigningUploadKeepsTheRest)
+    test(_TestADeletedDeviceIdIsNotHandedBack)
+    test(_TestDeletingADeviceUnpublishesItsKeys)
+    test(_TestDeletingADeviceUnpublishesThroughTheRegistry)
+    test(_TestAToDeviceEventRenders)
+    test(_TestNoKeysClaimedRendersEmpty)
+    test(_TestClaimedKeysGroupByAccount)
+    test(_TestAOneTimeKeyIsSpent)
+    test(_TestAnUnknownDeviceIsReportedMissing)
+    test(_TestAToDeviceMessageReachesASync)
+    test(_TestAnUnacknowledgedMessageIsSentAgain)
+    test(_TestToDeviceReachesEveryDevice)
+    test(_TestToDeviceGoesOnlyToItsDevice)
+    test(_TestTheToDeviceQueueIsBounded)
+    test(_TestAToDeviceMessageWakesAParkedSync)
+    test(_TestAClientKeepingUpNeverGapsToDevice)
+    test(_TestAFloodEvictsOnlyItsOwnSender)
+    test(_TestToDeviceKeepsTheOrderItArrived)
+    test(_TestClaimWithoutATokenIsRefused)
+    test(_TestSendToDeviceWithoutATokenIsRefused)
+    test(_TestAClaimFindsAnUploadedKey)
+    test(_TestAClaimForAnUnknownDeviceIsEmpty)
+    test(_TestAClaimForAnUnknownAccountIsEmpty)
+    test(_TestASentMessageReachesTheNextSync)
+    test(_TestSendingToNobodyIsAccepted)
+    test(_TestKeyUploadWithoutATokenIsRefused)
+    test(_TestKeyQueryWithoutATokenIsRefused)
+    test(_TestKeyUploadAnswersACount)
+    test(_TestAQueryFindsAnUploadedKey)
+    test(_TestAQueryAnswersAnUnknownAccount)
+    test(_TestCrossSigningUploadIsAccepted)
+    test(_TestSignatureUploadIsAccepted)
+    test(_TestNoBackupIsNotFound)
+    test(_TestABackupCanBeMadeAndRead)
+    test(_TestABackupNeedsAnAlgorithm)
     test(_TestSyncWaitDefaultsToZero)
     test(_TestSyncWaitHonoursRequest)
     test(_TestSyncWaitClamps)
@@ -115,6 +163,8 @@ actor Main is TestList
     test(_TestSendingToARoomYouAreNotInIsRefused)
     test(_TestAMemberMaySend)
     test(_TestAWokenSyncCarriesNoState)
+    test(_TestAccountDataReachesADevice)
+    test(_TestAccountDataIsNotResent)
     test(_TestCreateRoomWithoutATokenIsRefused)
     test(_TestCreateRoomAnswersARoomId)
     test(_TestSendingToARoomThatDoesNotExist)
@@ -380,11 +430,15 @@ primitive _ServeAuthedChain
   login-then-one-request, which cannot express anything a room needs — a
   room has to exist before it can be sent to, and its id only comes back in
   the response that made it.
+
+  `second` is given the login response as well as the first request's,
+  because the endpoints that address a device by name need an id that only
+  the login carries. `_DeviceFrom` reads it out.
   """
   fun apply(
     h: TestHelper,
     first: {(String): String} val,
-    second: {(String, String): String} val,
+    second: {(String, String, String): String} val,
     check: {(String)} val)
   =>
     h.long_test(10_000_000_000)
@@ -428,11 +482,11 @@ primitive _ServeAuthedChain
                     first(token),
                     server,
                     {(one)(connect_auth, port, second, check, h, server,
-                      token) =>
+                      token, login) =>
                       _TestClient(
                         connect_auth,
                         port,
-                        second(token, one),
+                        second(token, login, one),
                         server,
                         {(two)(check, h) =>
                           check(two); h.complete(true)
@@ -471,6 +525,24 @@ primitive _RoomFrom
       response.substring(start, finish)
     else
       None
+    end
+
+primitive _DeviceFrom
+  """
+  Pull `device_id` out of a raw login response.
+
+  A test that names a device cannot use a constant: marilwyd mints device
+  ids from the CSPRNG, so the only way to address the device a test is
+  signed in on is to read the one it was given.
+  """
+  fun apply(response: String): String =>
+    let key = "\"device_id\":\""
+    try
+      let start = response.find(key)? + key.size().isize()
+      let finish = response.find("\"", start)?
+      response.substring(start, finish)
+    else
+      ""
     end
 
 primitive _TokenFrom

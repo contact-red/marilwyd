@@ -191,12 +191,17 @@ primitive SyncDocument
   """
   The body of `GET /_matrix/client/v3/sync`.
 
-  An empty view renders `next_batch` and nothing else. `rooms` is omitted
-  when there is nothing in it, and `to_device` is never emitted at all —
-  matrix-js-sdk pins `timeout=0` while it believes it is catching up and
-  clears that only on a sync whose `to_device.events` is absent or empty,
-  so a client with nothing to receive must see byte-identically what it saw
-  when marilwyd had no rooms at all.
+  An empty view renders `next_batch` and nothing else. `rooms` and
+  `to_device` are both omitted when there is nothing in them.
+
+  Omitting `to_device` matters more than it looks. matrix-js-sdk pins
+  `timeout=0` while it believes it is catching up, and clears that only on
+  a sync whose `to_device.events` is absent or empty — so a block that is
+  never empty holds a client in a hot loop. Driven end to end, a block
+  emitted on every sync and a block emitted only when it has something both
+  behave: five syncs in eighty-four seconds either way. What must not
+  happen is a message that is delivered and never acknowledged, which is
+  what would make the block permanent.
 
   Events arrive in the order a device was given them, across every room it
   is in, and are grouped by room here because that is the shape a client
@@ -227,6 +232,30 @@ primitive SyncDocument
       let out = String(512)
       out.append("{\"next_batch\":")
       out.append(JsonPrinter.print(view.next_batch))
+      if view.account.size() > 0 then
+        out.append(",\"account_data\":{\"events\":[")
+        var account_first = true
+        for datum in view.account.values() do
+          if not account_first then
+            out.append(",")
+          end
+          account_first = false
+          out.append(datum.render())
+        end
+        out.append("]}")
+      end
+      if view.to_device.size() > 0 then
+        out.append(",\"to_device\":{\"events\":[")
+        var to_device_first = true
+        for message in view.to_device.values() do
+          if not to_device_first then
+            out.append(",")
+          end
+          to_device_first = false
+          out.append(message.render())
+        end
+        out.append("]}")
+      end
       if grouped.size() > 0 then
         out.append(",\"rooms\":{\"join\":{")
         var first = true

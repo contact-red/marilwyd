@@ -1,3 +1,4 @@
+use "collections"
 use "time"
 
 actor Device
@@ -17,20 +18,119 @@ actor Device
   """
   let _id: DeviceId
   let _epoch: StreamEpoch
-  var _pending: Pending = Pending
+  var _pending: Pending[RoomEvent] = Pending[RoomEvent]
   var _parked: (SyncReceiver tag | None) = None
   var _parked_since: (USize | None) = None
   var _state: Array[RoomEvent] val = recover val Array[RoomEvent] end
+  var _account: Array[AccountDatum] val =
+    recover val Array[AccountDatum] end
+  var _account_at: USize = 0
+  var _position: USize = 0
+  // One-time keys are the one piece of key material that belongs to a
+  // device rather than to its account: they are consumed one per session
+  // another device opens, so they cannot be shared between the devices of
+  // one user the way published identity keys are.
+  embed _one_time: Map[String, String] = _one_time.create()
+  // To-device messages queue separately from room events because they are
+  // acknowledged the same way but read differently: one is history a
+  // client displays, the other is a handshake between two devices that
+  // marilwyd carries without reading.
+  //
+  // One queue per sending account, not one queue. Any signed-in account
+  // may send to any device it can name, so a single queue would let a
+  // stranger push a hundred messages and evict a handshake this device was
+  // in the middle of. Separated, the only messages a flood can cost are
+  // the flooder's own.
+  //
+  // Keyed by account rather than by device, and that is what bounds it:
+  // accounts come from the credentials file and cannot be created, while
+  // anyone may mint devices without limit by signing in again.
+  embed _to_device: Map[String, Pending[ToDeviceEvent]] =
+    _to_device.create()
 
   new create(id': DeviceId, epoch: StreamEpoch) =>
     _id = id'
     _epoch = epoch
 
+  be take_one_time_keys(
+    keys: Array[(String, String)] val,
+    receiver: OneTimeKeyReceiver tag)
+  =>
+    """
+    Add one-time keys to this device's pool and say how many it now holds.
+
+    The count is answered rather than assumed because a client uses it to
+    decide whether to upload more, and it is a count of keys marilwyd is
+    holding — not of keys it was sent. Keys past the cap are refused, which
+    keeps the two the same number.
+
+    Keyed by key id, so a client re-sending one it has already uploaded
+    leaves the pool the size it was rather than growing it.
+    """
+    for (key_id, content) in keys.values() do
+      if _one_time.size() >= MaxOneTimeKeys() then
+        break
+      end
+      _one_time(key_id.clone()) = content.clone()
+    end
+    receiver.one_time_keys_held(_one_time.size())
+
+  be claim_one_time_key(user_id: String, receiver: OneTimeKeyClaimReceiver tag)
+  =>
+    """
+    Hand over one of this device's one-time keys and forget it.
+
+    Spent, not lent. A one-time key names one session, and offering the
+    same key twice would let two devices open sessions that each believe
+    they are the only one — which is the failure the pool exists to
+    prevent. A device that has run out says so rather than staying silent.
+    """
+    try
+      let key_id: String = _any_one_time_key()?
+      let content: String = _one_time(key_id)?
+      _one_time.remove(key_id)?
+      receiver.one_time_key_claimed(
+        user_id, _id.string(), key_id, content)
+    else
+      receiver.one_time_key_missing(user_id, _id.string())
+    end
+
+  fun _any_one_time_key(): String ? =>
+    """
+    Any key id the pool still holds.
+
+    Any, deliberately: the keys are interchangeable, none is older or
+    better than another, and nothing about which one is handed over is
+    observable to either device.
+    """
+    for key_id in _one_time.keys() do
+      return key_id
+    end
+    error
+
+  be deliver_to_device(event: ToDeviceEvent) =>
+    """
+    Take a message another device addressed to this one.
+    """
+    _position = _position + 1
+    let queue =
+      try
+        _to_device(event.sender)?
+      else
+        Pending[ToDeviceEvent]
+      end
+    _to_device(event.sender) = queue.push(_position, event, ToDeviceLimit())
+    _wake()
+
   be deliver(event: RoomEvent) =>
     """
     Take an event this device's user is entitled to.
     """
-    _pending = _pending.push(event)
+    // The device's own position, which advances for anything a client
+    // needs to know about — not only events. Account data is the other
+    // one, and deriving a position from the queue's length would miss it.
+    _position = _position + 1
+    _pending = _pending.push(_position, event)
     _wake()
 
   be room_state(state': Array[RoomEvent] val) =>
@@ -42,6 +142,20 @@ actor Device
     """
     _state = state'
 
+  be account_data(data: Array[AccountDatum] val) =>
+    """
+    Replace what this device is owed about its account's data.
+
+    Stamped with the current position, so a sync includes it exactly when
+    the client's position predates the change — the same rule room state
+    uses, and one that survives a response being lost, since the client's
+    position only advances when it asks for what comes after it.
+    """
+    _account = data
+    _position = _position + 1
+    _account_at = _position
+    _wake()
+
   be sync(since: (USize | None), wait: U64, receiver: SyncReceiver tag) =>
     """
     Answer what is owed, or hold the request until something is.
@@ -49,8 +163,11 @@ actor Device
     // Asking for what comes after a position is how a client confirms it
     // received everything up to it.
     _pending = _pending.acknowledged(since)
+    _acknowledge_to_device(since)
 
-    if (_pending.size() > 0) or (wait == 0) or (since is None) then
+    if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0)
+      or (since is None) or _account_unseen(since)
+    then
       _answer(receiver, since)
     else
       _parked = receiver
@@ -81,6 +198,107 @@ actor Device
       _parked_since = None
     end
 
+  fun ref _acknowledge_to_device(since: (USize | None)) =>
+    """
+    Drop what every sender's queue has had confirmed.
+
+    An emptied queue is left in place rather than removed. Nothing could
+    observe the difference — a queue answers from a position, so an
+    acknowledged message is filtered out whether or not its queue is still
+    there — and there is nothing to reclaim: a sender is an account, and
+    accounts come from the credentials file, so the map is bounded by that
+    file however long the process runs.
+    """
+    for (sender, queue) in _to_device.pairs() do
+      _to_device(sender) = queue.acknowledged(since)
+    end
+
+  fun _to_device_waiting(): USize =>
+    var waiting: USize = 0
+    for queue in _to_device.values() do
+      waiting = waiting + queue.size()
+    end
+    waiting
+
+  fun _to_device_dropped(): USize =>
+    var dropped: USize = 0
+    for queue in _to_device.values() do
+      dropped = dropped + queue.dropped()
+    end
+    dropped
+
+  fun _to_device_since(since: (USize | None)): Array[ToDeviceEvent] val =>
+    """
+    Every sender's owed messages, back in the order they arrived.
+
+    Each queue is already in position order, so this repeatedly takes
+    whichever queue's next message is earliest. Order within one sender is
+    what matters to a crypto machine — a handshake is a sequence — and
+    merging on the device position preserves the order across senders too.
+
+    The work is the messages owed times the senders owing them. Both are
+    bounded — `ToDeviceLimit()` per sender, and a sender is an account —
+    so the worst case needs every account on the server to be mid-flood at
+    one device, and it is paid by that device alone. In ordinary use a
+    device hears from one or two accounts at a time.
+    """
+    let slices = Array[Array[(USize, ToDeviceEvent)] val]
+    for queue in _to_device.values() do
+      let slice = queue.paired(since)
+      if slice.size() > 0 then
+        slices.push(slice)
+      end
+    end
+
+    let cursors = Array[USize].init(0, slices.size())
+    let merged = recover iso Array[ToDeviceEvent] end
+    var taken: USize = 0
+    var total: USize = 0
+    for slice in slices.values() do
+      total = total + slice.size()
+    end
+
+    while taken < total do
+      var best: (USize | None) = None
+      var best_at: USize = 0
+      for (index, slice) in slices.pairs() do
+        try
+          let cursor = cursors(index)?
+          if cursor < slice.size() then
+            (let at: USize, _) = slice(cursor)?
+            if (best is None) or (at < best_at) then
+              best = index
+              best_at = at
+            end
+          end
+        end
+      end
+      match best
+      | let index: USize =>
+        try
+          let cursor = cursors(index)?
+          (_, let event: ToDeviceEvent) = slices(index)?(cursor)?
+          merged.push(event)
+          cursors(index)? = cursor + 1
+        end
+        taken = taken + 1
+      else
+        // Unreachable: `taken < total` means some queue still has one.
+        break
+      end
+    end
+    consume merged
+
+  fun _account_unseen(since: (USize | None)): Bool =>
+    """
+    Whether the account data changed after the position the client gave.
+    """
+    match since
+    | let n: USize => _account_at > n
+    else
+      _account.size() > 0
+    end
+
   fun ref _wake() =>
     match _parked
     | let receiver: SyncReceiver tag =>
@@ -101,9 +319,18 @@ actor Device
       else
         _state
       end
+    let account =
+      if _account_unseen(since) then
+        _account
+      else
+        recover val Array[AccountDatum] end
+      end
+
     receiver.synced(
       SyncView(
-        StreamPositionText(_epoch, _pending.position()),
+        StreamPositionText(_epoch, _position),
         owed,
         state',
-        _pending.dropped() > 0))
+        account,
+        _to_device_since(since),
+        (_pending.dropped() + _to_device_dropped()) > 0))

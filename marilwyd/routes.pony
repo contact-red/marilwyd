@@ -114,6 +114,12 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/rooms/:roomId/state",
         _RoomState(sessions, rooms))
+      .> put(
+        "/_matrix/client/v3/user/:userId/account_data/:type",
+        _SetAccountData(sessions))
+      .> get(
+        "/_matrix/client/v3/user/:userId/account_data/:type",
+        _GetAccountData(sessions))
       // Element asks for `/pushrules/`. hobby strips a trailing slash at
       // both registration and lookup, so the two spellings are one route
       // and only one may be registered — a second would silently replace
@@ -127,6 +133,33 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/user/:userId/filter/:filterId",
         _AuthedJSON(sessions, EmptyFilter()))
+
+      // Encryption. A client will not finish signing in without all four of
+      // these: removing any one of them was measured to leave Element at
+      // "Setting up keys" or "Unable to set up keys" rather than in the app.
+      .> post("/_matrix/client/v3/keys/upload", _UploadKeys(sessions))
+      .> post("/_matrix/client/v3/keys/query", _QueryKeys(sessions))
+      .> post(
+        "/_matrix/client/v3/keys/device_signing/upload",
+        _UploadCrossSigningKeys(sessions))
+      .> post(
+        "/_matrix/client/v3/keys/signatures/upload",
+        _UploadSignatures(sessions))
+      // Not encryption itself, but part of the same gate: a client that
+      // cannot create a backup version stops at "Unable to set up keys".
+      .> post(
+        "/_matrix/client/v3/room_keys/version",
+        _CreateKeyBackup(sessions))
+      .> get(
+        "/_matrix/client/v3/room_keys/version",
+        _KeyBackupVersion(sessions))
+      // What one device says to another. `keys/claim` spends a one-time
+      // key so the two can open a session; `sendToDevice` is what they say
+      // once they have one.
+      .> post("/_matrix/client/v3/keys/claim", _ClaimKeys(sessions))
+      .> put(
+        "/_matrix/client/v3/sendToDevice/:eventType/:txnId",
+        _SendToDevice(sessions))
 
       // A method with no row at all is hobby's business, and hobby answers
       // it with a plain-text `Method Not Allowed` carrying no `errcode` —

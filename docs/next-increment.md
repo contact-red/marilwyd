@@ -1,4 +1,4 @@
-# Next increment: what Element needs after `/sync`
+# Next increment: what Element needs after encryption
 
 Everything here was measured against **Element 1.12.25** — the version the
 Makefile pins — signed in as a local user, driven through headless Firefox,
@@ -6,132 +6,144 @@ with `--log-requests` on and its output timestamped.
 
 ## What is already true
 
-`/sync` works and the sync loop is healthy. Four consecutive cycles from the
-steady state, once the client has stopped catching up:
+Element signs in and reaches the app. `/sync` long-polls, rooms deliver,
+account data round-trips, and the encryption handshake completes in about a
+hundred milliseconds and then stops. A seventy-second session after sign-in
+costs five syncs and one `keys/query`.
 
-```text
---> GET /_matrix/client/v3/sync     <-- 200 after 25.001 s
---> GET /_matrix/client/v3/sync     <-- 200 after 25.001 s
---> GET /_matrix/client/v3/sync     <-- 200 after 25.000 s
---> GET /_matrix/client/v3/sync     <-- 200 after 25.001 s
-```
+The client renders "Verify this device" over the room list. That prompt is
+not a failure — it is Element offering to cross-sign this device from
+another one, and there is no other one.
 
-Seven syncs in a two-minute session: a short burst of `timeout=0` syncs
-while the client catches up, then the 25-second cadence above for as long as
-it stays open. `/pushrules/` settled after three calls and `/filter` after
-one; before this increment both were retried every few seconds, forever.
+## What still limits a usable server
 
-## What still blocks a usable client
+Nothing blocks a session. What is left are things a client can do that
+marilwyd cannot yet answer, in rough order of how soon a person would hit
+them.
 
-Element's "Syncing…" screen is `pendingInitialSync`, and `postLoginSetup`
-clears it only after **both** halves of this resolve:
+### Two devices can talk, but Element will not start the conversation
 
-```js
-await Promise.all([firstSyncPromise, userHasCrossSigningKeys()])
-```
+`POST /keys/claim` and `PUT /sendToDevice/{eventType}/{txnId}` are
+implemented, and `to_device` is delivered through `/sync`. Two devices of
+one account exchange keys and messages correctly, driven over curl: a
+claim spends a key and the next claim gets a different one, a message
+addressed to one device reaches that device and no other, `*` reaches all
+of them, and a delivered message is not delivered twice.
 
-`/sync` resolves the first half. The second issues
-`POST /_matrix/client/v3/keys/query`, which marilwyd answers
-`M_UNRECOGNIZED`; matrix-js-sdk retries it on every sync cycle and the
-promise never settles. Sampled every ten seconds for ninety seconds, the
-client state never moved:
+What has not been seen is Element doing it. With neither device verified,
+its UI offers "Remove this device" and nothing else — the control that
+sends an `m.key.verification.request` appears after a device has been
+verified against a recovery key, which needs secret storage
+(`m.secret_storage.*` in account data) and the 4S flow behind it. That, not
+the to-device channel, is what stands between here and two Elements
+verifying each other.
 
-```json
-{"syncState":"SYNCING","hasCrypto":true,"userId":"@alice:...",
- "rooms":0,"spinner":true}
-```
+Worth knowing before starting it: account data already round-trips, so the
+storage half of secret storage may need nothing new. The work is finding
+which account-data keys Element writes and reads during
+`bootstrapSecretStorage`, and whether anything else gates the flow.
 
-`syncState: SYNCING` is the proof that the sync half is done.
+### Rooms are not encrypted, and `createRoom` says otherwise
 
-Two things worth knowing before starting:
+Element sends `preset`, `join_rules`, `guest_access` and
+`m.room.encryption` to `createRoom`; marilwyd reads `name` and ignores the
+rest. A room a client asked to make private and encrypted comes back public
+and unencrypted, and nothing tells it so. This is the oldest lie in the
+codebase and it grows more visible now that a client can reach the UI that
+makes rooms.
 
-- **Answering `keys/query` is not on its own enough.** With no cross-signing
-  keys, `userHasCrossSigningKeys()` returns false, which routes Element into
-  its `E2E_SETUP` view rather than into the app. An earlier spike that
-  stubbed the crypto endpoints reached exactly that screen — "Unable to set
-  up keys". The increment is the crypto flow, not an endpoint.
-- **The retry is paced by the sync loop**, once per 25-second cycle, because
-  the rust crypto machine flushes outgoing requests after each sync. Adding
-  `/sync` fixed the request storm even for the request that still fails, so
-  there is no urgency here beyond making the client usable.
+Deciding what to do about `m.room.encryption` is a design question, not an
+implementation one: the IRC bridge is plaintext by nature, so a room that
+is genuinely encrypted end-to-end is a room the bridge cannot read.
 
-## Everything Element asked for and did not get
+### A backup holds nothing
 
-From one two-minute session. `{userId}` is percent-encoded on the wire.
+`room_keys/version` records a version and answers it back, which is all a
+client needs to finish signing in. There is no `room_keys/keys`, so the
+backup a client believes it has holds no keys and reports a count of zero.
+A client that loses its device loses its history — which is already true,
+since a room keeps no messages, but a backup that exists and is empty is a
+more specific promise than no backup at all.
 
-| Method | Path |
-|---|---|
-| POST | `/_matrix/client/v3/keys/query` |
-| POST | `/_matrix/client/v3/keys/upload` |
-| GET | `/_matrix/client/v3/capabilities` |
-| GET | `/_matrix/client/v3/profile/{userId}` |
-| GET | `/_matrix/client/v3/room_keys/version` |
-| PUT | `/_matrix/client/v3/user/{userId}/account_data/{type}` |
-| GET | `/_matrix/client/v3/voip/turnServer` |
-| GET | `/_matrix/client/v3/thirdparty/protocols` |
-| POST | `/_matrix/client/v3/register` |
-| GET | `/_matrix/client/unstable/org.matrix.msc2965/auth_metadata` |
-| GET | `/_matrix/client/unstable/org.matrix.msc3814.v1/dehydrated_device` |
-| GET | `/_matrix/client/unstable/org.matrix.msc4143/rtc/transports` |
+### A recorded gap goes nowhere
 
-All of these answer `M_UNRECOGNIZED` in JSON, so none of them is a parse
-failure — they are simply absent. For the four non-GET rows that is new:
-before the catch-all covered their methods they got a plain-text `405` with
-no `errcode`, which matrix-js-sdk cannot read at all.
+A device that drops queued events or to-device messages records that it has
+a gap, and nothing renders it: `/sync` writes `"limited": false`
+unconditionally. Setting it honestly would tell a client to backfill
+through `/rooms/{roomId}/messages`, which does not exist and will not — a
+room keeps no messages. So surfacing a gap needs somewhere for the client
+to go before it needs a field.
 
-`account_data` is the one that is not crypto and is cheap: Element `PUT`s
-notification settings once and then retries five times, because there is
-nowhere to put them.
+### Endpoints Element asks for and does not get
 
-## Measured: two endpoints clear the gate, and a naive stub is worse
+All answer `M_UNRECOGNIZED` in JSON, and all are retried slowly rather than
+storming.
 
-Stubbing `POST /keys/query` with empty key maps and `POST /keys/upload` with
-an empty count **does** clear the spinner — the client leaves
-`pendingInitialSync` and advances to Element's `E2E_SETUP` view, which shows
-"Unable to set up keys", because
-`POST /_matrix/client/v3/keys/device_signing/upload` answers
-`M_UNRECOGNIZED`.
+| Method | Path | Cost of leaving it |
+|---|---|---|
+| GET | `capabilities` | Element assumes defaults |
+| GET | `profile/{userId}` | no display name or avatar anywhere |
+| GET | `voip/turnServer` | no calls |
+| GET | `thirdparty/protocols` | no bridge list in the UI |
+| POST | `register` | out of scope permanently |
+| GET | `unstable/org.matrix.msc2965/auth_metadata` | no OIDC, by choice |
+| GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | no dehydration |
+| GET | `unstable/org.matrix.msc4143/rtc/transports` | no element call |
 
-**Do not ship that stub.** In a seventy-second session it produced:
+`profile` is the cheapest of these and the most visible: it is why the
+client shows a user id where a name belongs.
 
-```text
-10325 --> POST /_matrix/client/v3/keys/query
-    5 --> GET  /_matrix/client/v3/sync
-```
+## What was measured, so it need not be measured again
 
-Roughly 150 requests a second, against 5 syncs. Answering `keys/query` with
-empty maps tells the rust crypto machine the query did not resolve what it
-asked for, so it asks again immediately, forever. That is a worse failure
-than the 404 it replaces: the 404 was retried once per 25-second sync cycle,
-because it rode the sync loop's outgoing-request flush.
-
-A crypto endpoint answering *syntactically* is not the same as answering
-*usefully*, and the difference shows up as a request storm rather than an
-error. Whatever `keys/query`
-returns has to satisfy the machine's notion of a completed query for the
-device it asked about — which means the device id has to be real.
-
-## Open questions to settle first
-
-- ~~Device-aware sessions are probably a prerequisite.~~ **Done.**
-  `SessionRegistry` now stores a `DeviceId` per session, `resolve` answers
-  with it, and sessions end one at a time. `keys/query` has a real device to
-  answer about.
-- What `keys/query` must contain for the machine to consider the query
-  answered. This is the crux and it is not guessable — it needs the same
-  treatment `/sync` got: change one thing, run Element, read the log.
-- Whether to implement cross-signing (`keys/device_signing/upload`,
-  `room_keys/version`) or to find the branch that skips `E2E_SETUP`
-  altogether. Not investigated.
-- `account_data` PUT is the cheapest non-crypto item left — Element retries
-  it five times a session and it needs no key handling at all.
+- **An endpoint answering syntactically is not the same as answering
+  usefully.** `keys/query` with empty key maps clears the spinner and then
+  produces 10,325 requests in seventy seconds, because a query that does
+  not resolve what it asked about is retried at once. The rule that fixes
+  it: every account named in the request gets an entry in the response,
+  including the account asking, whether or not it named itself.
+- **Each of the five encryption endpoints was verified by removal.**
+  Dropping `keys/signatures/upload` ends a session at "Unable to set up
+  keys" before the backup step. Dropping `POST /room_keys/version` ends it
+  at the same screen one step later.
+- **`device_one_time_keys_count` and `device_lists` in the sync response
+  change nothing.** Omitting both was driven end to end and produced an
+  identical session. They are not implemented for that reason, and this is
+  the note that stops someone adding them on the assumption they are
+  required.
+- **Emitting `to_device` does not cause the hot loop the note warned of.**
+  matrix-js-sdk pins `timeout=0` while it believes it is catching up and
+  clears that only on a sync whose `to_device.events` is absent or empty.
+  Driven end to end, a block emitted on every sync and a block emitted only
+  when it has something behave identically: five syncs in eighty-four
+  seconds either way. The danger is narrower than "emit the block" — it is
+  a message that is delivered and never acknowledged, which would make the
+  block permanent.
+- **A client reads account data back from its local store, which only
+  `/sync` fills.** `PUT` and `GET` on `account_data` alone would let a
+  client save settings it could never read.
 
 ## How to re-run the probe
 
-The spike that produced these numbers lives outside the repository, but it is
-small: build the server, run it with `--log-requests` piped through
-something that stamps each line with a monotonic clock, then drive Element
-with a Marionette script that signs in and samples
-`mxMatrixClientPeg.get().getSyncState()` and `document.body.innerText` every
-ten seconds. The client-state sampling is what distinguishes "stuck" from
-"slow"; a screenshot alone does not.
+The spike lives outside the repository. Build the server, run it with
+`--log-requests`, and drive Element with a Marionette script that signs in
+and samples `mxMatrixClientPeg.get().getSyncState()` and
+`document.body.innerText` every ten seconds. The client-state sampling is
+what distinguishes "stuck" from "slow"; a screenshot alone does not.
+
+Three things worth knowing before repeating it.
+
+Firefox from a snap has a private `/tmp`, so a profile written there is
+invisible to it — put the profile under `$HOME`.
+
+A process-killing pattern like `marilwyd` or `hs.py` matches the shell that
+names it as well as the target, so match on the start of the command line
+instead. But `/proc/<pid>/cmdline` separates arguments with NUL rather than
+spaces: a multi-word pattern compared against it raw matches nothing, and a
+teardown that quietly matches nothing leaves the previous run's server
+holding the port. Two runs were served by a stale process before that was
+spotted, and both looked like results. Replace the NULs before comparing,
+and check the port is free rather than trusting the kill.
+
+A spike server that survives is not a harmless leftover: it keeps the state
+of every run before it, so device ids and login counts accumulate and the
+client behaves as though it has more devices than the test created.

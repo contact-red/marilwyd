@@ -204,10 +204,18 @@ arrives, and a device that is not syncing holds what it has not
 acknowledged.
 
 `PendingLimit()` bounds that at a thousand events per device. Past it the
-oldest are dropped and the device is marked as having a gap, which it can
-see and nothing can fill. Dropping rather than refusing is deliberate: the
-alternative lets one sleeping device stop a room delivering to everyone
-else.
+oldest are dropped and the device records that it has a gap.
+
+That record does not currently reach the client. `/sync` renders
+`"limited": false` unconditionally, so a device that has lost events says
+nothing about it — the honest field to set would tell a client to backfill
+through an endpoint marilwyd does not implement, and answering a client
+with a pointer to nothing is the failure mode this codebase has already
+been bitten by twice. The gap is recorded and asserted in tests; surfacing
+it needs somewhere for the client to go.
+
+Dropping rather than refusing is deliberate: the alternative lets one
+sleeping device stop a room delivering to everyone else.
 
 What this bounds and what it does not:
 
@@ -227,6 +235,115 @@ which makes disclosure the only way one escapes. `--log-requests` prints
 paths, and three of the room endpoints carry the id in the path, so **do
 not enable request logging on a deployment where room ids matter** until
 that is redacted.
+
+## Published keys
+
+Encryption keys are the one thing marilwyd stores that is meant to be read
+by people other than the account that wrote it, so what crosses that line
+is worth stating.
+
+**Public by design.** A device's identity keys, and an account's master and
+self-signing keys, are answered to anyone with a valid token who asks for
+that account. That is not a leak — it is what the endpoint is for, and it
+is what everyone else encrypts to. It does mean a signed-in account can
+enumerate any account it can name, and learn its device ids. `POST
+/delete_devices` is scoped to the caller's own account for exactly that
+reason: device ids stop being something an attacker has to guess once
+`keys/query` will hand them over.
+
+**Withheld.** The user-signing key is answered only to its owner. It is
+what an account uses to sign *other* people, and no one else has a use for
+it.
+
+**A signature upload cannot replace a key.** `keys/signatures/upload`
+carries the whole key object it signs, so the obvious implementation stores
+what arrives — and then any device of an account could republish another
+device's identity keys, changing what other users encrypt to. marilwyd
+reads only the `signatures` field of an upload and merges it into what is
+stored, which makes that substitution impossible rather than merely
+disallowed. Signatures under a user id other than the caller's own are
+ignored entirely.
+
+**What marilwyd does not do.** It does not verify a single signature.
+Nothing here checks that a key was signed by the key it claims, that a
+device key is well formed, or that an account's cross-signing keys are
+self-consistent. A client that trusts marilwyd's answers is trusting the
+account that uploaded them and the transport, not a server that checked
+anything. Real homeservers do not verify these either — verification is the
+clients' job, and it is why the keys are signed — but it is worth being
+explicit that a compromised account can publish nonsense and marilwyd will
+serve it.
+
+Key backups are storage of a description only. `room_keys/version` records
+the algorithm and `auth_data` a client sends and hands back a version
+number; there is no endpoint to put room keys into a backup, so a backup
+holds none and reports a count of zero. Nothing in a backup is secret to
+marilwyd — `auth_data` is a public key — and nothing about it is verified.
+
+## What one device says to another
+
+`sendToDevice` carries a message from one device to another and marilwyd
+reads none of it. The content is parsed only far enough to check it is a
+JSON object and is then stored as text; in practice it is an Olm
+ciphertext, and marilwyd holds no key that could open one.
+
+**The sender is the token, not the body.** A message is stamped with the
+account the access token belongs to, so a client cannot send as anyone
+else. A client may address any account it can name — that is what the
+endpoint is for — but it cannot forge who a message came from.
+
+**Nothing is reported back.** Sending to an account that does not exist, or
+to a device that does not exist, answers exactly as sending to a real one
+does. That is deliberate: a response that distinguished them would let any
+signed-in account enumerate accounts and devices by sending to guesses.
+`keys/claim` behaves the same way — a device with no keys left and a device
+that has never existed are both answered by leaving it out.
+
+**A flood costs only the flooder.** Any signed-in account may send to any
+device it can name, and the device ids needed to aim at one are public —
+`keys/query` hands them out, as recorded above. A single queue per device
+would therefore let a stranger push past `ToDeviceLimit()` and evict a
+handshake the device was in the middle of with someone else.
+
+A device keeps one queue per sending account instead, so the only messages
+a flood discards are the flooder's own. The bound is per sender, and what
+bounds the number of senders is that an account cannot be created: they
+come from the credentials file. Keying by device rather than by account
+would have undone that, since anyone may mint devices without limit by
+signing in again.
+
+What is left is the ordinary cost: a device's to-device memory is bounded
+by the number of accounts times `ToDeviceLimit()`, and an account that
+floods still occupies its own share. That needs an authenticated account,
+so it is the same posture as the other costs here — stated, and left to a
+rate limiter in front.
+
+## Cost of the to-device channel
+
+Per device, bounded at `ToDeviceLimit()` messages — a hundred, smaller than
+the thousand `PendingLimit()` allows for room events, because what a
+dropped message costs differs. A dropped room event costs a client one
+message it can see is missing; a dropped to-device message costs it half a
+handshake, and neither end is told which half.
+
+A `sendToDevice` request is refused past `MaxToDeviceBody()`. One request
+may name many devices, so that is larger than the key-upload bound rather
+than equal to it.
+
+## Cost of published keys
+
+Per device, bounded: one identity key object, and a pool of one-time keys
+capped at `MaxOneTimeKeys()`. A key upload is refused past
+`MaxKeysBody()` — 131,072 bytes, against the 12,698 a real Element upload
+measures — so a single request cannot be arbitrarily large.
+
+Per account, **not bounded**: published device keys are keyed by device id
+and are removed when a device is deleted, not when it signs out. An account
+that signs in repeatedly, each time being issued a fresh device,
+accumulates one key object per device for as long as the process runs. This
+is the same posture as the room costs above — it needs an authenticated
+account, so it is stated here and left to a rate limiter in front rather
+than bounded here.
 
 ## Deployment shape
 

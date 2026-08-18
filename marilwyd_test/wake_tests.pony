@@ -303,3 +303,73 @@ actor _ExpectNoState is SyncReceiver
     _h.assert_eq[USize](
       0, view.state.size(), "a woken sync re-sent the room state")
     _h.complete(true)
+
+class \nodoc\ iso _TestAccountDataReachesADevice is UnitTest
+  """
+  Account data has to arrive through `/sync`, not just through its own
+  endpoint: Element reads it from a local store that only sync populates,
+  so a client could otherwise save settings it would never see again.
+  """
+  fun name(): String => "account/a change reaches a device's sync"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
+      let alice = User("@alice:example.test")
+      alice.attach("laptop", device)
+
+      device.sync(USize(0), 25_000, _ExpectAccountData(h))
+      alice.set_account_data(
+        "m.push_rules_display", "{\"quiet\":true}")
+    else
+      _NoRandom(h)
+    end
+
+class \nodoc\ iso _TestAccountDataIsNotResent is UnitTest
+  """
+  A client that has already been told does not need telling again, or every
+  sync would carry the whole account's data forever.
+  """
+  fun name(): String => "account/a client past the change is not told again"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
+      let alice = User("@alice:example.test")
+      alice.attach("laptop", device)
+      alice.set_account_data("m.quiet", "{\"on\":true}")
+
+      // The change landed at position 0, so a client already at 0 has it.
+      device.sync(USize(0), 0, _ExpectNoAccountData(h))
+    else
+      _NoRandom(h)
+    end
+
+actor _ExpectAccountData is SyncReceiver
+  let _h: TestHelper
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be synced(view: SyncView) =>
+    _h.assert_eq[USize](
+      1, view.account.size(), "woken without the account data")
+    let rendered = SyncDocument(view)
+    _h.assert_true(rendered.contains("account_data"), rendered)
+    _h.assert_true(rendered.contains("m.push_rules_display"), rendered)
+    _h.assert_true(rendered.contains("quiet"), rendered)
+    _h.complete(true)
+
+actor _ExpectNoAccountData is SyncReceiver
+  let _h: TestHelper
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be synced(view: SyncView) =>
+    _h.assert_eq[USize](
+      0, view.account.size(), "account data was sent again")
+    _h.assert_false(SyncDocument(view).contains("account_data"))
+    _h.complete(true)

@@ -8,15 +8,21 @@ class val SyncView
   let next_batch: String
   let events: Array[RoomEvent] val
   let state: Array[RoomEvent] val
+  let account: Array[AccountDatum] val
+  let to_device: Array[ToDeviceEvent] val
   let gap: Bool
 
   new val create(
     next_batch': String,
     events': Array[RoomEvent] val,
     state': Array[RoomEvent] val,
+    account': Array[AccountDatum] val,
+    to_device': Array[ToDeviceEvent] val,
     gap': Bool)
   =>
     next_batch = next_batch'
     events = events'
     state = state'
+    account = account'
+    to_device = to_device'
     gap = gap'

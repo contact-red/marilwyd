@@ -118,10 +118,10 @@ class \nodoc\ iso _TestPendingKeepsOnlyItsLimit is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      var queue = Pending
+      var queue = Pending[RoomEvent]
       var i: USize = 0
       while i < 10 do
-        queue = queue.push(_Message(room, "@alice:example.test", i)?, 3)
+        queue = queue.push(i + 1, _Message(room, "@alice:example.test", i)?, 3)
         i = i + 1
       end
       h.assert_eq[USize](3, queue.size())
@@ -143,17 +143,17 @@ class \nodoc\ iso _TestPendingRemembersItDropped is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      var queue = Pending
+      var queue = Pending[RoomEvent]
       var i: USize = 0
       while i < 5 do
-        queue = queue.push(_Message(room, "@alice:example.test", i)?, 2)
+        queue = queue.push(i + 1, _Message(room, "@alice:example.test", i)?, 2)
         i = i + 1
       end
       h.assert_eq[USize](3, queue.dropped())
 
-      // Acknowledging the current position is how a client confirms it
+      // Acknowledging the last position is how a client confirms it
       // received everything, and is what drains the queue.
-      let drained = queue.acknowledged(queue.position())
+      let drained = queue.acknowledged(USize(5))
       h.assert_eq[USize](0, drained.size())
       h.assert_eq[USize](3, drained.dropped(), "the gap was forgotten")
     else
@@ -174,8 +174,8 @@ class \nodoc\ iso _TestPendingSharesItsEvents is UnitTest
     try
       let room = _AnyRoom()?
       let event = _Message(room, "@alice:example.test", 0)?
-      let laptop = Pending.push(event)
-      let phone = Pending.push(event)
+      let laptop = Pending[RoomEvent].push(1, event)
+      let phone = Pending[RoomEvent].push(1, event)
 
       h.assert_eq[USize](1, laptop.size())
       h.assert_eq[USize](1, phone.size())
@@ -197,8 +197,8 @@ class \nodoc\ iso _TestPendingVersionsAreIndependent is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      let first = Pending.push(_Message(room, "@alice:example.test", 0)?)
-      let second = first.push(_Message(room, "@alice:example.test", 1)?)
+      let first = Pending[RoomEvent].push(1, _Message(room, "@alice:example.test", 0)?)
+      let second = first.push(2, _Message(room, "@alice:example.test", 1)?)
       h.assert_eq[USize](1, first.size(), "the earlier version grew")
       h.assert_eq[USize](2, second.size())
     else
@@ -210,27 +210,29 @@ class \nodoc\ iso _TestPendingHandlesAnImpossiblePosition is UnitTest
   A position ahead of anything this device has held is as unusable as one
   behind what it still holds, and answered the same way.
 
-  Found by a test parking at a position that did not exist: the slice
-  computed an offset past the end and returned nothing, so a client that
-  sent a position from a previous process would have been answered with
-  silence forever.
+  Each entry carries the position it was queued at, so a `since` is
+  compared against those rather than turned into an index — which is what
+  lets a device's position advance for things that are not events, such as
+  a change to its account's data.
   """
-  fun name(): String => "pending/an impossible position yields everything"
+  fun name(): String => "pending/a slice is taken by position, not index"
 
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      var queue = Pending
+      var queue = Pending[RoomEvent]
       var i: USize = 0
       while i < 3 do
-        queue = queue.push(_Message(room, "@alice:example.test", i)?)
+        queue = queue.push(i + 1, _Message(room, "@alice:example.test", i)?)
         i = i + 1
       end
-      h.assert_eq[USize](3, queue.position())
-      // Far ahead of anything this device has seen.
-      h.assert_eq[USize](3, queue.since(USize(99)).size())
-      // And exactly at the end means nothing new, which is not the same.
-      h.assert_eq[USize](0, queue.since(USize(3)).size())
+      // Far ahead of anything this device has seen: every entry's own
+      // position is at or below it, so nothing is newer.
+      h.assert_eq[USize](0, queue.since(USize(99)).size())
+      // From the start, everything.
+      h.assert_eq[USize](3, queue.since(USize(0)).size())
+      // From the middle, the rest.
+      h.assert_eq[USize](1, queue.since(USize(2)).size())
     else
       _NoRandom(h)
     end
