@@ -22,7 +22,7 @@ class ref RoomState
   """
   let id: RoomId
   embed _state: Map[String, Map[String, RoomEvent]] = _state.create()
-  embed _members: Map[String, USize] = _members.create()
+  embed _members: Set[String] = _members.create()
 
   new ref create(id': RoomId) =>
     id = id'
@@ -44,12 +44,12 @@ class ref RoomState
       slots(key) = event
     end
 
-  fun ref join(user_id: String, position: USize) =>
-    _members(user_id) = position
+  fun ref join(user_id: String) =>
+    _members.set(user_id)
 
   fun ref leave(user_id: String) =>
     try
-      (_, _) = _members.remove(user_id)?
+      _members.extract(user_id)?
     end
 
   fun is_member(user_id: String): Bool =>
@@ -57,7 +57,7 @@ class ref RoomState
 
   fun members(): Array[String] val =>
     let found = recover iso Array[String] end
-    for who in _members.keys() do
+    for who in _members.values() do
       found.push(who)
     end
     consume found

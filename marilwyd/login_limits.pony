@@ -46,10 +46,9 @@ primitive CheckLoginShape
   Refuse a login body that is too large or too deeply nested, before the
   parser builds anything from it.
 
-  A pre-pass rather than a limit on the parse itself: ponyc 0.68.0's
-  `JsonParser` takes no limits, and its streaming counterpart can be
-  stopped mid-document. The document is walked twice as a result, which
-  costs microseconds against a login's 380 ms key derivation.
+  The depth half is `_JSONDeeperThan`, which every body-reading endpoint
+  now shares. The document is walked twice as a result, which costs
+  microseconds against a login's 380 ms key derivation.
 
   Malformed JSON is not this primitive's business — it answers `None` for
   anything that is merely unparseable and lets the tree parser produce the
@@ -66,38 +65,6 @@ primitive CheckLoginShape
       return LoginBodyTooLarge
     end
 
-    let depth: _LoginDepth ref = _LoginDepth
-    let parser = JsonTokenParser(depth)
-    try
-      parser.parse(String.from_array(body))?
-    end
-
-    if depth.exceeded then
+    if _JSONDeeperThan(body, MaxLoginDepth()) then
       LoginBodyTooDeep
-    end
-
-class ref _LoginDepth is JsonTokenNotify
-  """
-  Counts how deep a document nests, and stops the parser once it is deeper
-  than a login may be.
-
-  Aborting matters as much as counting: without it a body would be walked
-  to its end to discover something already known at the limit, which is the
-  work the limit exists to refuse.
-  """
-  var depth: USize = 0
-  var exceeded: Bool = false
-
-  fun ref apply(parser: JsonTokenParser, token: JsonToken) =>
-    match token
-    | JsonTokenObjectStart | JsonTokenArrayStart =>
-      depth = depth + 1
-      if depth > MaxLoginDepth() then
-        exceeded = true
-        parser.abort()
-      end
-    | JsonTokenObjectEnd | JsonTokenArrayEnd =>
-      if depth > 0 then
-        depth = depth - 1
-      end
     end

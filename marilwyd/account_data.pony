@@ -55,6 +55,10 @@ actor _SetAccountDataHandler is (hobby.HandlerReceiver & UserReceiver)
         _respond(
           stallion.StatusBadRequest,
           MatrixError("M_BAD_JSON", MalformedEvent.message()))
+      | EventTooDeep =>
+        _respond(
+          stallion.StatusBadRequest,
+          MatrixError("M_BAD_JSON", EventTooDeep.message()))
       end
     | None =>
       _respond(

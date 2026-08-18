@@ -27,6 +27,28 @@ primitive MaxEventDepth
   """
   fun apply(): USize => 8
 
+primitive MaxCreateBody
+  """
+  The largest `createRoom` request marilwyd will read.
+
+  This endpoint had no bound at all — it was the one body-reading path
+  without one, parsing up to the transport cap. A create request is a
+  handful of short fields plus whatever initial state a client asks for,
+  and Element's is under a kilobyte.
+  """
+  fun apply(): USize => 8192
+
+primitive MaxCreateDepth
+  """
+  How deeply a `createRoom` request may nest.
+
+  A create request's deepest legitimate shape is its `initial_state`
+  array, the event in it, that event's content, and that content's
+  values — four. This is generous against that while keeping the parser's
+  frame count independent of how the bytes are spent.
+  """
+  fun apply(): USize => 8
+
 primitive _PathParam
   """
   Pull a decoded path parameter out of a matched route.
@@ -57,9 +79,17 @@ primitive _EventContent
   copyable, and `JsonPrinter` does the escaping so nothing downstream
   assembles a document out of client text.
   """
-  fun apply(body: Array[U8] val): (String | MalformedEvent) =>
+  fun apply(body: Array[U8] val)
+    : (String | MalformedEvent | EventTooDeep)
+  =>
     if body.size() > MaxEventBody() then
       return MalformedEvent
+    end
+    // `MaxEventDepth` was declared with this reasoning and then never
+    // applied to anything, so the shape half of the bound did not exist
+    // until now — only the byte half did.
+    if _JSONDeeperThan(body, MaxEventDepth()) then
+      return EventTooDeep
     end
     match JsonParser.parse(String.from_array(body))
     | let o: JsonObject => JsonPrinter.print(o)
@@ -72,6 +102,18 @@ primitive MalformedEvent
   An event body that is not a JSON object, or is larger than one may be.
   """
   fun message(): String => "Event content must be a JSON object"
+
+primitive EventTooDeep
+  """
+  An event body nested deeper than `MaxEventDepth()`, whatever its length.
+
+  Its own refusal rather than sharing `MalformedEvent`'s: a client whose
+  content is not an object and a client whose content nests too far have
+  different things to fix, and one message for two causes is the fault
+  `MalformedSyncTimeout` was split to remove.
+  """
+  fun message(): String =>
+    "Event content is nested more deeply than an event may be"
 
 class val _CreateRoom
   """
@@ -116,14 +158,26 @@ actor _CreateRoomHandler is
     // `m.room.encryption`, none of which marilwyd implements — a room is
     // always unencrypted and always joinable by anyone holding its id, and
     // `README.md` says so rather than letting a client's padlock lie.
-    let name =
-      match JsonParser.parse(String.from_array(_body))
-      | let o: JsonObject =>
-        match o.get_or_else("name", None)
-        | let n: String => n
+    if _body.size() > MaxCreateBody() then
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError("M_TOO_LARGE", "That is larger than a create request"))
+    elseif _JSONDeeperThan(_body, MaxCreateDepth()) then
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError(
+          "M_BAD_JSON",
+          "That is nested more deeply than a create request may be"))
+    else
+      let name =
+        match JsonParser.parse(String.from_array(_body))
+        | let o: JsonObject =>
+          match o.get_or_else("name", None)
+          | let n: String => n
+          end
         end
-      end
-    _rooms.create_room(session.user_id, session.user, name, this)
+      _rooms.create_room(session.user_id, session.user, name, this)
+    end
 
   be token_rejected() =>
     _respond(stallion.StatusUnauthorized, UnknownToken())
@@ -313,6 +367,11 @@ actor _SendEventHandler is
       _respond(
         stallion.StatusBadRequest,
         MatrixError("M_BAD_JSON", MalformedEvent.message()))
+      return
+    | EventTooDeep =>
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError("M_BAD_JSON", EventTooDeep.message()))
       return
     end
 

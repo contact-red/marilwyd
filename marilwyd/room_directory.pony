@@ -24,10 +24,12 @@ actor RoomDirectory
   =>
     match MakeRoomId(_homeserver.server_name)
     | let id: RoomId =>
-      let room = Room(id, _homeserver.server_name)
-      _rooms(id.string()) = room
-      room.created_by(user_id.clone(), user, name)
-      receiver.room_created(id)
+      let room = Room(id)
+      let key: String = id.string()
+      _rooms(key) = room
+      // The room answers, not this actor: only the room knows whether the
+      // events that make it a room were written.
+      room.created_by(user_id.clone(), user, name, receiver)
     else
       // Fail closed. A room id is the only thing gating access to a room,
       // so there is no weaker one worth handing out.

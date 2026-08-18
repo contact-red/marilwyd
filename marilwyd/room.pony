@@ -17,29 +17,58 @@ actor Room
   would put the memory back that the per-device queues exist to bound.
   """
   let _state: RoomState
-  let _server_name: String
   embed _members: Map[String, User tag] = _members.create()
   var _position: USize = 0
 
-  new create(id': RoomId, server_name: String) =>
+  new create(id': RoomId) =>
     _state = RoomState(id')
-    _server_name = server_name
 
-  be created_by(user_id: String, user: User tag, name: (String | None)) =>
+  be created_by(
+    user_id: String,
+    user: User tag,
+    name: (String | None),
+    receiver: RoomCreationReceiver tag)
+  =>
     """
-    Write the events that make a room a room, then admit its creator.
+    Write the events that make a room a room, admit its creator, and only
+    then say the room exists.
+
+    The room answers rather than the directory, because the directory
+    cannot see whether this succeeded. `_append` mints an event id and
+    answers `None` when the CSPRNG refuses; ignoring that produced a room
+    with no `m.room.create` event and a `200` telling the client it had
+    been made — success reported by silence, of exactly the kind a room id
+    being the whole access control makes worth reporting.
+
+    No test covers the refusal: it needs the CSPRNG to fail, and
+    `MakeEventId` reaches `ssl/crypto` with no seam to fail it through.
+    Mutation confirms as much — deleting this branch changes nothing any
+    test can see. It is here because the failure is real, not because it
+    is observed, and a seam would have to be cut once for all four `Make*`
+    primitives rather than for this one.
     """
-    _append(
+    match _append(
       user_id,
       "m.room.create",
       "{\"creator\":" + _quoted(user_id) + "}",
       "")
+    | None =>
+      receiver.room_refused()
+      return
+    end
+
     match name
     | let n: String =>
-      _append(
+      match _append(
         user_id, "m.room.name", "{\"name\":" + _quoted(n) + "}", "")
+      | None =>
+        receiver.room_refused()
+        return
+      end
     end
+
     _admit(user_id, user)
+    receiver.room_created(_state.id)
 
   be join(user_id: String, user: User tag, receiver: MembershipReceiver tag) =>
     """
@@ -87,7 +116,8 @@ actor Room
     Tell one device what this room currently is, so a fresh sync can render
     it without asking every room in turn.
     """
-    device.room_state(_state.state_events())
+    let id: String = _state.id.string()
+    device.room_state(id, _state.state_events())
 
   be state(user_id: String, receiver: StateReceiver tag) =>
     if _state.is_member(user_id) then
@@ -98,7 +128,7 @@ actor Room
 
   fun ref _admit(user_id: String, user: User tag) =>
     _append(user_id, "m.room.member", "{\"membership\":\"join\"}", user_id)
-    _state.join(user_id, _position)
+    _state.join(user_id)
     _members(user_id) = user
     user.joined(_state.id.string(), this)
 

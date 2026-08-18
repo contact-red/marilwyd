@@ -21,7 +21,10 @@ actor Device
   var _pending: Pending[RoomEvent] = Pending[RoomEvent]
   var _parked: (SyncReceiver tag | None) = None
   var _parked_since: (USize | None) = None
-  var _state: Array[RoomEvent] val = recover val Array[RoomEvent] end
+  // Keyed by room, because a device is in more than one. Held as one
+  // array, a second room's state replaced the first's rather than joining
+  // it, and a client signing in saw exactly one of its rooms.
+  embed _state: Map[String, Array[RoomEvent] val] = _state.create()
   var _account: Array[AccountDatum] val =
     recover val Array[AccountDatum] end
   var _account_at: USize = 0
@@ -133,14 +136,28 @@ actor Device
     _pending = _pending.push(_position, event)
     _wake()
 
-  be room_state(state': Array[RoomEvent] val) =>
+  be room_state(room_id: String, state': Array[RoomEvent] val) =>
     """
-    Replace the state this device would be told about on a fresh sync.
+    Replace what this device would be told about one room on a fresh sync.
 
     Held here rather than fetched at sync time so an initial sync needs no
-    round trip to every room the user is in.
+    round trip to every room the user is in. Per room, because replacing
+    the lot is what made a device in two rooms see one of them.
     """
-    _state = state'
+    _state(room_id.clone()) = state'
+
+  be forget_room(room_id: String) =>
+    """
+    Drop a room this device's account has left.
+
+    Necessary rather than tidy: state is now kept per room, so a room left
+    behind would go on being described to this device on every fresh sync
+    for as long as the process ran. Holding one array hid that, by
+    discarding everything on the next room's arrival.
+    """
+    try
+      (_, _) = _state.remove(room_id)?
+    end
 
   be account_data(data: Array[AccountDatum] val) =>
     """
@@ -289,6 +306,18 @@ actor Device
     end
     consume merged
 
+  fun _described(): Array[RoomEvent] val =>
+    """
+    The current state of every room this device is in.
+    """
+    let found = recover iso Array[RoomEvent] end
+    for events in _state.values() do
+      for event in events.values() do
+        found.push(event)
+      end
+    end
+    consume found
+
   fun _account_unseen(since: (USize | None)): Bool =>
     """
     Whether the account data changed after the position the client gave.
@@ -317,7 +346,7 @@ actor Device
       match since
       | let _: USize => recover val Array[RoomEvent] end
       else
-        _state
+        _described()
       end
     let account =
       if _account_unseen(since) then
