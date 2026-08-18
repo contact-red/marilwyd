@@ -62,6 +62,27 @@ class ref RoomState
     end
     consume found
 
+  fun content_of(kind: String, key: String = ""): (String | None) =>
+    """
+    The content of one current state event, looked up rather than scanned.
+
+    A keyed read because the callers that want one — the room's name for a
+    directory listing, its alias, whether it is encrypted — ask about a
+    single event and would otherwise walk every membership in the room to
+    find it.
+    """
+    try
+      return _state(kind)?(key)?.content
+    end
+    None
+
+  fun size(): USize =>
+    """
+    How many members the room has. What a public directory listing shows,
+    and the one number about a room a stranger may read before joining.
+    """
+    _members.size()
+
   fun state_events(): Array[RoomEvent] val =>
     """
     Every current state event. What a joining member is sent so the room is

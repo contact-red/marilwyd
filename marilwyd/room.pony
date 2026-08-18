@@ -26,7 +26,7 @@ actor Room
   be created_by(
     user_id: String,
     user: User tag,
-    name: (String | None),
+    wanted: CreateRoomRequest,
     receiver: RoomCreationReceiver tag)
   =>
     """
@@ -57,10 +57,28 @@ actor Room
       return
     end
 
-    match name
+    match wanted.name
     | let n: String =>
       match _append(
         user_id, "m.room.name", "{\"name\":" + _quoted(n) + "}", "")
+      | None =>
+        receiver.room_refused()
+        return
+      end
+    end
+
+    // Written as state so a client renders `#pony:server` beside the room
+    // rather than a room id. The directory's map is what resolves an
+    // alias; this event is what makes the room say it has one, and the two
+    // are written together or not at all.
+    match wanted.alias
+    | let a: RoomAlias =>
+      let text: String = a.string()
+      match _append(
+        user_id,
+        "m.room.canonical_alias",
+        "{\"alias\":" + _quoted(text) + "}",
+        "")
       | None =>
         receiver.room_refused()
         return
@@ -118,6 +136,22 @@ actor Room
     """
     let id: String = _state.id.string()
     device.room_state(id, _state.state_events())
+
+  be summarise(receiver: RoomSummaryReceiver tag) =>
+    """
+    Describe this room for the public directory.
+
+    Answered by the room rather than cached anywhere, so there is one
+    account of what a room is called and how many people are in it. The
+    cost is one message per published room per directory request, and a
+    directory request is a person clicking Explore.
+    """
+    receiver.room_summarised(
+      RoomSummary(
+        _state.id,
+        _NameIn(_state.content_of("m.room.name")),
+        _NameIn(_state.content_of("m.room.canonical_alias"), "alias"),
+        _state.size()))
 
   be state(user_id: String, receiver: StateReceiver tag) =>
     if _state.is_member(user_id) then

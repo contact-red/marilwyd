@@ -27,6 +27,53 @@ primitive MaxEventDepth
   """
   fun apply(): USize => 8
 
+primitive _CreateRoomWanted
+  """
+  Read a `createRoom` body for the three things marilwyd honours.
+
+  `name` is text a client shows. `room_alias_name` becomes the room's
+  alias, and an alias is a name anyone may resolve into a room id — so it
+  is validated here rather than stored as sent. `visibility` decides
+  whether the room is listed in the public directory.
+
+  Everything else a client sends is dropped, and `README.md` says which.
+  `preset`, in particular, is read for nothing: no preset implies
+  encryption, and the access controls the others describe are ones this
+  server does not enforce.
+  """
+  fun apply(body: Array[U8] val, server_name: String)
+    : (CreateRoomRequest | InvalidAlias)
+  =>
+    let sent =
+      match JsonParser.parse(String.from_array(body))
+      | let o: JsonObject => o
+      else
+        return CreateRoomRequest(None, None, false)
+      end
+
+    let name: (String | None) =
+      match sent.get_or_else("name", None)
+      | let n: String => n.clone()
+      end
+
+    let alias: (RoomAlias | None) =
+      match sent.get_or_else("room_alias_name", None)
+      | let wanted: String =>
+        match \exhaustive\ RoomAliases.make(wanted, server_name)
+        | let a: RoomAlias => a
+        | let why: InvalidAlias => return why
+        end
+      end
+
+    let published =
+      match sent.get_or_else("visibility", None)
+      | let asked: String => asked == "public"
+      else
+        false
+      end
+
+    CreateRoomRequest(name, alias, published)
+
 primitive MaxCreateBody
   """
   The largest `createRoom` request marilwyd will read.
@@ -121,30 +168,39 @@ class val _CreateRoom
   """
   let _sessions: SessionRegistry tag
   let _rooms: RoomDirectory tag
+  let _homeserver: Homeserver
 
-  new val create(sessions: SessionRegistry tag, rooms: RoomDirectory tag) =>
+  new val create(
+    sessions: SessionRegistry tag,
+    rooms: RoomDirectory tag,
+    homeserver: Homeserver)
+  =>
     _sessions = sessions
     _rooms = rooms
+    _homeserver = homeserver
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _CreateRoomHandler(consume ctx, _sessions, _rooms)
+    _CreateRoomHandler(consume ctx, _sessions, _rooms, _homeserver)
 
 actor _CreateRoomHandler is
   (hobby.HandlerReceiver & UserReceiver & RoomCreationReceiver)
   embed _handler: hobby.RequestHandler
   let _rooms: RoomDirectory tag
+  let _server_name: String
   let _body: Array[U8] val
 
   new create(
     ctx: hobby.HandlerContext iso,
     sessions: SessionRegistry tag,
-    rooms: RoomDirectory tag)
+    rooms: RoomDirectory tag,
+    homeserver: Homeserver)
   =>
     let supplied = _BearerToken(ctx.request)
     _body = ctx.body
     _rooms = rooms
+    _server_name = homeserver.server_name
     _handler = hobby.RequestHandler(consume ctx)
 
     match supplied
@@ -169,14 +225,14 @@ actor _CreateRoomHandler is
           "M_BAD_JSON",
           "That is nested more deeply than a create request may be"))
     else
-      let name =
-        match JsonParser.parse(String.from_array(_body))
-        | let o: JsonObject =>
-          match o.get_or_else("name", None)
-          | let n: String => n
-          end
-        end
-      _rooms.create_room(session.user_id, session.user, name, this)
+      match \exhaustive\ _CreateRoomWanted(_body, _server_name)
+      | let wanted: CreateRoomRequest =>
+        _rooms.create_room(session.user_id, session.user, wanted, this)
+      | let why: InvalidAlias =>
+        _respond(
+          stallion.StatusBadRequest,
+          MatrixError("M_INVALID_PARAM", why.string()))
+      end
     end
 
   be token_rejected() =>
@@ -184,6 +240,11 @@ actor _CreateRoomHandler is
 
   be room_created(room: RoomId) =>
     _respond(stallion.StatusOK, RoomCreated(room))
+
+  be alias_taken() =>
+    _respond(
+      stallion.StatusConflict,
+      MatrixError("M_ROOM_IN_USE", "That alias is already in use"))
 
   be room_refused() =>
     _respond(

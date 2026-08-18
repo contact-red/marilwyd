@@ -377,3 +377,41 @@ primitive UnknownToken
       .update("errcode", "M_UNKNOWN_TOKEN")
       .update("error", "Unrecognised access token")
       .update("soft_logout", true))
+
+primitive AliasResolved
+  """
+  The body of `GET /_matrix/client/v3/directory/room/{roomAlias}`.
+
+  `servers` names this server alone. It is the list of servers a client
+  should try when joining, and marilwyd federates with none.
+  """
+  fun apply(room_id: String, server_name: String): String =>
+    "{\"room_id\":" + JsonPrinter.print(room_id)
+      + ",\"servers\":[" + JsonPrinter.print(server_name) + "]}"
+
+primitive PublicRooms
+  """
+  The body of `publicRooms`.
+
+  `total_room_count_estimate` is the exact count rather than an estimate,
+  because every published room is in the chunk — there is no next page to
+  make it an estimate of. `next_batch` is absent for the same reason: a
+  client reads its absence as the end of the directory, which it is.
+  """
+  fun apply(rooms: Array[RoomSummary] val): String =>
+    recover val
+      let out = String(256)
+      out.append("{\"chunk\":[")
+      var first = true
+      for summary in rooms.values() do
+        if not first then
+          out.append(",")
+        end
+        first = false
+        out.append(summary.render())
+      end
+      out.append("],\"total_room_count_estimate\":")
+      out.append(rooms.size().string())
+      out.append("}")
+      out
+    end

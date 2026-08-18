@@ -345,6 +345,39 @@ is the same posture as the room costs above — it needs an authenticated
 account, so it is stated here and left to a rate limiter in front rather
 than bounded here.
 
+## Aliases and the public directory
+
+An alias — `#pony:server_name` — is a short, guessable name that resolves
+to a room id. A room id is the entire access control on a room: anyone
+holding one may join, there are no invitations, and nothing revokes one.
+Put together, **giving a room an alias makes that room joinable by anyone
+who guesses the alias**, which is a far smaller space than 128 bits.
+
+That is what an alias is for, and it is not a defect. What matters is that
+it is deliberate. marilwyd therefore treats an alias as a decision to make
+a room public: a room created with one is listed in the directory whether
+or not `visibility: public` was asked for.
+
+This diverges from Matrix, where `visibility` alone decides listing and an
+alias may belong to an invite-only room. marilwyd has no invite-only room
+to give it to. Leaving an aliased room unlisted would offer a privacy that
+does not exist — the room would still be reachable by guessing, and the
+only difference would be that its owner could not see it had been exposed.
+
+Two consequences worth stating plainly:
+
+* A room with **no** alias and no `visibility: public` is not listed, is
+  not resolvable by name, and remains reachable only by its id. That is
+  still the default, and it is what `createRoom` produces when a client
+  asks for nothing.
+* The directory is readable by **any** signed-in account, and it hands out
+  room ids. Publishing a room is publishing its id to everyone with an
+  account on this server.
+
+The member count is the one thing in a listing that is not otherwise
+public. It is what every client renders beside a room, and it is a count
+rather than a list: the directory never names who is in a room.
+
 ## Deployment shape
 
 marilwyd never terminates TLS: it calls `hobby.Server`, not
