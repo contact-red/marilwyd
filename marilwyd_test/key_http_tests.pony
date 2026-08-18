@@ -66,7 +66,7 @@ class \nodoc\ iso _TestAQueryFindsAnUploadedKey is UnitTest
             + "\"keys\":{\"ed25519:AAA\":\"published\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(token, first) =>
+      {(token, login, first) =>
         _Post(
           "/_matrix/client/v3/keys/query",
           "{\"device_keys\":{}}",
@@ -185,7 +185,7 @@ class \nodoc\ iso _TestABackupCanBeMadeAndRead is UnitTest
             + "\"auth_data\":{\"public_key\":\"pk\"}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(token, first) =>
+      {(token, login, first) =>
         _Send(
           "GET",
           "/_matrix/client/v3/room_keys/version",

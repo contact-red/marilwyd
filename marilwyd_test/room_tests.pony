@@ -118,7 +118,7 @@ class \nodoc\ iso _TestPendingKeepsOnlyItsLimit is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      var queue = Pending
+      var queue = Pending[RoomEvent]
       var i: USize = 0
       while i < 10 do
         queue = queue.push(i + 1, _Message(room, "@alice:example.test", i)?, 3)
@@ -143,7 +143,7 @@ class \nodoc\ iso _TestPendingRemembersItDropped is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      var queue = Pending
+      var queue = Pending[RoomEvent]
       var i: USize = 0
       while i < 5 do
         queue = queue.push(i + 1, _Message(room, "@alice:example.test", i)?, 2)
@@ -174,8 +174,8 @@ class \nodoc\ iso _TestPendingSharesItsEvents is UnitTest
     try
       let room = _AnyRoom()?
       let event = _Message(room, "@alice:example.test", 0)?
-      let laptop = Pending.push(1, event)
-      let phone = Pending.push(1, event)
+      let laptop = Pending[RoomEvent].push(1, event)
+      let phone = Pending[RoomEvent].push(1, event)
 
       h.assert_eq[USize](1, laptop.size())
       h.assert_eq[USize](1, phone.size())
@@ -197,7 +197,7 @@ class \nodoc\ iso _TestPendingVersionsAreIndependent is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      let first = Pending.push(1, _Message(room, "@alice:example.test", 0)?)
+      let first = Pending[RoomEvent].push(1, _Message(room, "@alice:example.test", 0)?)
       let second = first.push(2, _Message(room, "@alice:example.test", 1)?)
       h.assert_eq[USize](1, first.size(), "the earlier version grew")
       h.assert_eq[USize](2, second.size())
@@ -220,7 +220,7 @@ class \nodoc\ iso _TestPendingHandlesAnImpossiblePosition is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      var queue = Pending
+      var queue = Pending[RoomEvent]
       var i: USize = 0
       while i < 3 do
         queue = queue.push(i + 1, _Message(room, "@alice:example.test", i)?)

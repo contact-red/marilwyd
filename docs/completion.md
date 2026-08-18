@@ -133,6 +133,19 @@ them on the paths it takes.
 | POST | `rooms/{roomId}/leave` | |
 | PUT | `rooms/{roomId}/send/{type}/{txn}` | `txn` is routed and not read |
 | GET | `rooms/{roomId}/state` | |
+| POST | `keys/claim` | no second device has claimed one yet |
+| PUT | `sendToDevice/{type}/{txn}` | Element sends none with one device |
+
+`keys/claim` and `sendToDevice` are here for a specific reason. A single
+signed-in device has nothing to talk to, so Element never calls either in a
+one-client session — they are exercised by the test suite and by two
+devices driven over curl. Element's own two-device verification was not
+reached: with neither device verified, its UI offers only "Remove this
+device", and the path that would send an `m.key.verification.request` opens
+after a device has been verified by a recovery key. So these two rows are
+verified at the protocol level rather than by a completed verification, and
+that distinction is the whole reason this table separates observed from
+implemented.
 
 `createRoom` is the one to watch. Element sends `preset`, `join_rules`,
 `guest_access` and `m.room.encryption`; marilwyd reads `name` and ignores
@@ -164,10 +177,10 @@ its rooms from `/sync` instead), and under `/rooms/{roomId}/`:
 **Account data and tags** — `GET`/`PUT /user/{userId}/account_data/{type}`,
 the same scoped to a room, and `/user/{userId}/rooms/{roomId}/tags`.
 
-**Encryption beyond signing in** — `POST /keys/claim`, `GET /keys/changes`,
+**Encryption beyond signing in** — `GET /keys/changes`,
 `PUT`/`DELETE /room_keys/version/{version}`, and `GET`/`PUT`/`DELETE
-/room_keys/keys`. Signing in needs none of them; talking to a second device
-needs the first, and a backup that actually holds keys needs the last.
+/room_keys/keys`. A backup that actually holds keys needs the last of
+those; nothing marilwyd serves needs any of them today.
 
 `GET /rooms/{roomId}/messages` is not on that list and will not be: a room
 keeps no messages, so there is nothing for it to page through. It would

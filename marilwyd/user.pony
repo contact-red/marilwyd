@@ -173,6 +173,55 @@ actor User
         _self_signing,
         if own then _user_signing else None end))
 
+  be send_to_device(
+    sender: String,
+    kind: String,
+    device_id: String,
+    content: String)
+  =>
+    """
+    Hand a message to one of this account's devices, or to all of them.
+
+    A device this account does not have is dropped without a word. The
+    endpoint reports no failures and a client is told nothing about which
+    of the devices it named exist — which is deliberate on both counts:
+    saying would let anyone enumerate an account's devices by sending to
+    guesses.
+
+    Built once and shared. `ToDeviceEvent` is `val`, so addressing every
+    device of an account costs one object however many devices there are.
+    """
+    let event = ToDeviceEvent(sender.clone(), kind.clone(), content.clone())
+    if device_id == AllDevices() then
+      for device in _devices.values() do
+        device.deliver_to_device(event)
+      end
+    else
+      try
+        _devices(device_id)?.deliver_to_device(event)
+      end
+    end
+
+  be claim_keys(
+    device_ids: Array[String] val,
+    receiver: OneTimeKeyClaimReceiver tag)
+  =>
+    """
+    Ask each named device of this account for a one-time key.
+
+    Every device named is answered for, including ones this account does
+    not have. A caller counts the replies to know when it has them all, so
+    a device that simply never answered would hold a request open until its
+    deadline.
+    """
+    for device_id in device_ids.values() do
+      try
+        _devices(device_id)?.claim_one_time_key(id, receiver)
+      else
+        receiver.one_time_key_missing(id, device_id)
+      end
+    end
+
   be create_backup(backup: KeyBackup, receiver: KeyBackupReceiver tag) =>
     """
     Record a new key backup version and answer what it is called.

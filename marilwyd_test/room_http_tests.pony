@@ -72,7 +72,7 @@ class \nodoc\ iso _TestCreateThenSend is UnitTest
           "{}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(token, created) =>
+      {(token, login, created) =>
         let room =
           match _RoomFrom(created)
           | let id: String => _Encoded(id)
@@ -106,7 +106,7 @@ class \nodoc\ iso _TestCreateThenReadState is UnitTest
           "{\"name\":\"pony\"}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(token, created) =>
+      {(token, login, created) =>
         let room =
           match _RoomFrom(created)
           | let id: String => _Encoded(id)
@@ -155,7 +155,7 @@ class \nodoc\ iso _TestEventContentMustBeAnObject is UnitTest
           "{}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
-      {(token, created) =>
+      {(token, login, created) =>
         let room =
           match _RoomFrom(created)
           | let id: String => _Encoded(id)

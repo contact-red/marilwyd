@@ -153,6 +153,13 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/room_keys/version",
         _KeyBackupVersion(sessions))
+      // What one device says to another. `keys/claim` spends a one-time
+      // key so the two can open a session; `sendToDevice` is what they say
+      // once they have one.
+      .> post("/_matrix/client/v3/keys/claim", _ClaimKeys(sessions))
+      .> put(
+        "/_matrix/client/v3/sendToDevice/:eventType/:txnId",
+        _SendToDevice(sessions))
 
       // A method with no row at all is hobby's business, and hobby answers
       // it with a plain-text `Method Not Allowed` carrying no `errcode` —

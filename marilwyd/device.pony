@@ -18,7 +18,7 @@ actor Device
   """
   let _id: DeviceId
   let _epoch: StreamEpoch
-  var _pending: Pending = Pending
+  var _pending: Pending[RoomEvent] = Pending[RoomEvent]
   var _parked: (SyncReceiver tag | None) = None
   var _parked_since: (USize | None) = None
   var _state: Array[RoomEvent] val = recover val Array[RoomEvent] end
@@ -31,6 +31,11 @@ actor Device
   // another device opens, so they cannot be shared between the devices of
   // one user the way published identity keys are.
   embed _one_time: Map[String, String] = _one_time.create()
+  // To-device messages queue separately from room events because they are
+  // acknowledged the same way but read differently: one is history a
+  // client displays, the other is a handshake between two devices that
+  // marilwyd carries without reading.
+  var _to_device: Pending[ToDeviceEvent] = Pending[ToDeviceEvent]
 
   new create(id': DeviceId, epoch: StreamEpoch) =>
     _id = id'
@@ -58,6 +63,47 @@ actor Device
       _one_time(key_id.clone()) = content.clone()
     end
     receiver.one_time_keys_held(_one_time.size())
+
+  be claim_one_time_key(user_id: String, receiver: OneTimeKeyClaimReceiver tag)
+  =>
+    """
+    Hand over one of this device's one-time keys and forget it.
+
+    Spent, not lent. A one-time key names one session, and offering the
+    same key twice would let two devices open sessions that each believe
+    they are the only one — which is the failure the pool exists to
+    prevent. A device that has run out says so rather than staying silent.
+    """
+    try
+      let key_id: String = _any_one_time_key()?
+      let content: String = _one_time(key_id)?
+      _one_time.remove(key_id)?
+      receiver.one_time_key_claimed(
+        user_id, _id.string(), key_id, content)
+    else
+      receiver.one_time_key_missing(user_id, _id.string())
+    end
+
+  fun _any_one_time_key(): String ? =>
+    """
+    Any key id the pool still holds.
+
+    Any, deliberately: the keys are interchangeable, none is older or
+    better than another, and nothing about which one is handed over is
+    observable to either device.
+    """
+    for key_id in _one_time.keys() do
+      return key_id
+    end
+    error
+
+  be deliver_to_device(event: ToDeviceEvent) =>
+    """
+    Take a message another device addressed to this one.
+    """
+    _position = _position + 1
+    _to_device = _to_device.push(_position, event, ToDeviceLimit())
+    _wake()
 
   be deliver(event: RoomEvent) =>
     """
@@ -100,9 +146,10 @@ actor Device
     // Asking for what comes after a position is how a client confirms it
     // received everything up to it.
     _pending = _pending.acknowledged(since)
+    _to_device = _to_device.acknowledged(since)
 
-    if (_pending.size() > 0) or (wait == 0) or (since is None)
-      or _account_unseen(since)
+    if (_pending.size() > 0) or (_to_device.size() > 0) or (wait == 0)
+      or (since is None) or _account_unseen(since)
     then
       _answer(receiver, since)
     else
@@ -177,4 +224,5 @@ actor Device
         owed,
         state',
         account,
-        _pending.dropped() > 0))
+        _to_device.since(since),
+        (_pending.dropped() + _to_device.dropped()) > 0))

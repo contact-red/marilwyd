@@ -7,7 +7,7 @@ web client — one origin, one process.
 
 **Element signs in and reaches the app.** A local user logs in, the client
 settles into a real sync loop instead of retrying, finishes setting up
-encryption keys, and renders the room list. Twenty-four Matrix endpoints,
+encryption keys, and renders the room list. Twenty-six Matrix endpoints,
 listed below.
 
 One account can be signed in from several clients at once — a browser, a
@@ -23,9 +23,10 @@ clients publish and hands them back — device keys, cross-signing keys,
 signatures, and the description of a key backup — which is what a client
 needs to finish signing in. It verifies no signature and encrypts nothing:
 that is the clients' job, and `SECURITY.md` says exactly what crosses which
-line. Two devices of one account still cannot verify each other, because
-`POST /keys/claim` and the to-device channel are not implemented; see
-`docs/next-increment.md`.
+line. Two devices of one account can now reach each other: `POST /keys/claim`
+spends a one-time key so they can open a session, and
+`PUT /sendToDevice/…` carries what they say over it, delivered through the
+recipient's `/sync`. marilwyd never reads any of it.
 
 A settled session costs five syncs and one `keys/query` per seventy
 seconds. That number is in the README because the naive version of the same
@@ -191,6 +192,8 @@ public.
 | POST | `/_matrix/client/v3/keys/signatures/upload` | merges signatures |
 | POST | `/_matrix/client/v3/room_keys/version` | makes a backup version |
 | GET | `/_matrix/client/v3/room_keys/version` | the current one |
+| POST | `/_matrix/client/v3/keys/claim` | spends a device's one-time key |
+| PUT | `/_matrix/client/v3/sendToDevice/:type/:txn` | one device to another |
 | GET, POST, PUT, DELETE | `/_matrix` | `M_UNRECOGNIZED` |
 | GET, POST, PUT, DELETE | `/_matrix/*` | `M_UNRECOGNIZED` |
 

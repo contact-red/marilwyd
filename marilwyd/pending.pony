@@ -12,9 +12,15 @@ primitive PendingLimit
   """
   fun apply(): USize => 1000
 
-class val Pending
+class val Pending[A: Any val]
   """
   What one device has not acknowledged yet.
+
+  Generic over what is queued because a device holds two of these and the
+  hard part is the same for both: an entry is kept until the client comes
+  back with a position past it, the queue is bounded, and going over the
+  bound is a fact the device remembers. Room events and to-device messages
+  differ only in what a client does with them.
 
   Events are held until the client comes back with a position at or past
   them, not until they are first sent. A response lost in transit would
@@ -28,22 +34,22 @@ class val Pending
   same ten messages hold ten events and three spines of pointers, and ORCA
   traces the one copy.
   """
-  let _events: per.Vec[(USize, RoomEvent)]
+  let _events: per.Vec[(USize, A)]
   let _dropped: USize
 
   new val create() =>
-    _events = per.Vec[(USize, RoomEvent)]
+    _events = per.Vec[(USize, A)]
     _dropped = 0
 
-  new val _from(events': per.Vec[(USize, RoomEvent)], dropped': USize) =>
+  new val _from(events': per.Vec[(USize, A)], dropped': USize) =>
     _events = events'
     _dropped = dropped'
 
   fun val push(
     at: USize,
-    event: RoomEvent,
+    event: A,
     limit: USize = PendingLimit())
-    : Pending
+    : Pending[A]
   =>
     """
     Add an event, dropping the oldest if that puts the queue over its limit.
@@ -54,17 +60,17 @@ class val Pending
     """
     let grown = _events.push((at, event))
     if grown.size() <= limit then
-      Pending._from(grown, _dropped)
+      Pending[A]._from(grown, _dropped)
     else
       let excess = grown.size() - limit
       try
-        Pending._from(grown.remove(0, excess)?, _dropped + excess)
+        Pending[A]._from(grown.remove(0, excess)?, _dropped + excess)
       else
-        Pending._from(grown, _dropped)
+        Pending[A]._from(grown, _dropped)
       end
     end
 
-  fun val since(n: (USize | None)): Array[RoomEvent] val =>
+  fun val since(n: (USize | None)): Array[A] val =>
     """
     Everything after `n`, or everything held when the position is unusable.
 
@@ -76,7 +82,7 @@ class val Pending
     // matters because a device's position advances for things that are not
     // events — a change to the account's data is one — so an index derived
     // from a position would drift the moment one happened.
-    let found = recover iso Array[RoomEvent] end
+    let found = recover iso Array[A] end
     for (at, event) in _events.values() do
       match n
       | let given: USize if at <= given => None
@@ -86,7 +92,7 @@ class val Pending
     end
     consume found
 
-  fun val acknowledged(n: (USize | None)): Pending =>
+  fun val acknowledged(n: (USize | None)): Pending[A] =>
     """
     Drop everything at or before `n`, which the client has confirmed by
     asking for what comes after it.
@@ -103,7 +109,7 @@ class val Pending
         this
       else
         try
-          Pending._from(_events.remove(0, drop)?, _dropped)
+          Pending[A]._from(_events.remove(0, drop)?, _dropped)
         else
           this
         end
@@ -122,5 +128,5 @@ class val Pending
     """
     _dropped
 
-  fun val events(): Array[RoomEvent] val =>
+  fun val events(): Array[A] val =>
     since(None)

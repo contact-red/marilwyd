@@ -272,6 +272,51 @@ number; there is no endpoint to put room keys into a backup, so a backup
 holds none and reports a count of zero. Nothing in a backup is secret to
 marilwyd — `auth_data` is a public key — and nothing about it is verified.
 
+## What one device says to another
+
+`sendToDevice` carries a message from one device to another and marilwyd
+reads none of it. The content is parsed only far enough to check it is a
+JSON object and is then stored as text; in practice it is an Olm
+ciphertext, and marilwyd holds no key that could open one.
+
+**The sender is the token, not the body.** A message is stamped with the
+account the access token belongs to, so a client cannot send as anyone
+else. A client may address any account it can name — that is what the
+endpoint is for — but it cannot forge who a message came from.
+
+**Nothing is reported back.** Sending to an account that does not exist, or
+to a device that does not exist, answers exactly as sending to a real one
+does. That is deliberate: a response that distinguished them would let any
+signed-in account enumerate accounts and devices by sending to guesses.
+`keys/claim` behaves the same way — a device with no keys left and a device
+that has never existed are both answered by leaving it out.
+
+**A queue can be filled by someone else.** `ToDeviceLimit()` bounds what
+one device accumulates, and past it the oldest are dropped. Because any
+signed-in account may send to any device it can name, that bound is
+reachable by a stranger rather than only by a device being away: an account
+that sends a hundred messages to another account's device evicts whatever
+was queued for it, and the victim learns only that it has a gap. What that
+costs is a verification or a key share that has to be retried, not
+disclosure of anything. It needs an authenticated account, so this is the
+same posture as the other costs here — stated, and left to a rate limiter
+in front rather than bounded further.
+
+The device ids needed to aim such a thing are public: `keys/query` hands
+them out, as recorded above.
+
+## Cost of the to-device channel
+
+Per device, bounded at `ToDeviceLimit()` messages — a hundred, smaller than
+the thousand `PendingLimit()` allows for room events, because what a
+dropped message costs differs. A dropped room event costs a client one
+message it can see is missing; a dropped to-device message costs it half a
+handshake, and neither end is told which half.
+
+A `sendToDevice` request is refused past `MaxToDeviceBody()`. One request
+may name many devices, so that is larger than the key-upload bound rather
+than equal to it.
+
 ## Cost of published keys
 
 Per device, bounded: one identity key object, and a pool of one-time keys
