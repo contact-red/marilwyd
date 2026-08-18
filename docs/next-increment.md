@@ -65,6 +65,15 @@ A client that loses its device loses its history — which is already true,
 since a room keeps no messages, but a backup that exists and is empty is a
 more specific promise than no backup at all.
 
+### A recorded gap goes nowhere
+
+A device that drops queued events or to-device messages records that it has
+a gap, and nothing renders it: `/sync` writes `"limited": false`
+unconditionally. Setting it honestly would tell a client to backfill
+through `/rooms/{roomId}/messages`, which does not exist and will not — a
+room keeps no messages. So surfacing a gap needs somewhere for the client
+to go before it needs a field.
+
 ### Endpoints Element asks for and does not get
 
 All answer `M_UNRECOGNIZED` in JSON, and all are retried slowly rather than

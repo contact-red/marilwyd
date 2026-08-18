@@ -84,6 +84,8 @@ actor Main is TestList
     test(_TestTheToDeviceQueueIsBounded)
     test(_TestAToDeviceMessageWakesAParkedSync)
     test(_TestAClientKeepingUpNeverGapsToDevice)
+    test(_TestAFloodEvictsOnlyItsOwnSender)
+    test(_TestToDeviceKeepsTheOrderItArrived)
     test(_TestClaimWithoutATokenIsRefused)
     test(_TestSendToDeviceWithoutATokenIsRefused)
     test(_TestAClaimFindsAnUploadedKey)

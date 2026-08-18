@@ -204,10 +204,18 @@ arrives, and a device that is not syncing holds what it has not
 acknowledged.
 
 `PendingLimit()` bounds that at a thousand events per device. Past it the
-oldest are dropped and the device is marked as having a gap, which it can
-see and nothing can fill. Dropping rather than refusing is deliberate: the
-alternative lets one sleeping device stop a room delivering to everyone
-else.
+oldest are dropped and the device records that it has a gap.
+
+That record does not currently reach the client. `/sync` renders
+`"limited": false` unconditionally, so a device that has lost events says
+nothing about it — the honest field to set would tell a client to backfill
+through an endpoint marilwyd does not implement, and answering a client
+with a pointer to nothing is the failure mode this codebase has already
+been bitten by twice. The gap is recorded and asserted in tests; surfacing
+it needs somewhere for the client to go.
+
+Dropping rather than refusing is deliberate: the alternative lets one
+sleeping device stop a room delivering to everyone else.
 
 What this bounds and what it does not:
 
@@ -291,19 +299,24 @@ signed-in account enumerate accounts and devices by sending to guesses.
 `keys/claim` behaves the same way — a device with no keys left and a device
 that has never existed are both answered by leaving it out.
 
-**A queue can be filled by someone else.** `ToDeviceLimit()` bounds what
-one device accumulates, and past it the oldest are dropped. Because any
-signed-in account may send to any device it can name, that bound is
-reachable by a stranger rather than only by a device being away: an account
-that sends a hundred messages to another account's device evicts whatever
-was queued for it, and the victim learns only that it has a gap. What that
-costs is a verification or a key share that has to be retried, not
-disclosure of anything. It needs an authenticated account, so this is the
-same posture as the other costs here — stated, and left to a rate limiter
-in front rather than bounded further.
+**A flood costs only the flooder.** Any signed-in account may send to any
+device it can name, and the device ids needed to aim at one are public —
+`keys/query` hands them out, as recorded above. A single queue per device
+would therefore let a stranger push past `ToDeviceLimit()` and evict a
+handshake the device was in the middle of with someone else.
 
-The device ids needed to aim such a thing are public: `keys/query` hands
-them out, as recorded above.
+A device keeps one queue per sending account instead, so the only messages
+a flood discards are the flooder's own. The bound is per sender, and what
+bounds the number of senders is that an account cannot be created: they
+come from the credentials file. Keying by device rather than by account
+would have undone that, since anyone may mint devices without limit by
+signing in again.
+
+What is left is the ordinary cost: a device's to-device memory is bounded
+by the number of accounts times `ToDeviceLimit()`, and an account that
+floods still occupies its own share. That needs an authenticated account,
+so it is the same posture as the other costs here — stated, and left to a
+rate limiter in front.
 
 ## Cost of the to-device channel
 

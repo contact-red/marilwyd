@@ -26,7 +26,9 @@ that is the clients' job, and `SECURITY.md` says exactly what crosses which
 line. Two devices of one account can now reach each other: `POST /keys/claim`
 spends a one-time key so they can open a session, and
 `PUT /sendToDevice/…` carries what they say over it, delivered through the
-recipient's `/sync`. marilwyd never reads any of it.
+recipient's `/sync`. marilwyd never reads any of it, and a device queues
+each sending account separately so that an account flooding one can only
+discard its own messages.
 
 A settled session costs five syncs and one `keys/query` per seventy
 seconds. That number is in the README because the naive version of the same

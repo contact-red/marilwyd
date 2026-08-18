@@ -77,17 +77,32 @@ class val Pending[A: Any val]
     A position below what is still held names events that are gone, and is
     answered the same way as no position at all — with what there is.
     """
+    let found = recover iso Array[A] end
+    for (_, event) in paired(n).values() do
+      found.push(event)
+    end
+    consume found
+
+  fun val paired(n: (USize | None)): Array[(USize, A)] val =>
+    """
+    The same slice, with the position each entry was queued at.
+
+    Callers holding more than one of these need the positions to put the
+    entries back in the order they arrived: a device keeps a separate queue
+    per sender, and merging them is the only place the order across senders
+    exists.
+    """
     // Each entry carries the device position it was queued at, so a
     // client's `since` is compared rather than turned into an index. That
     // matters because a device's position advances for things that are not
     // events — a change to the account's data is one — so an index derived
     // from a position would drift the moment one happened.
-    let found = recover iso Array[A] end
+    let found = recover iso Array[(USize, A)] end
     for (at, event) in _events.values() do
       match n
       | let given: USize if at <= given => None
       else
-        found.push(event)
+        found.push((at, event))
       end
     end
     consume found

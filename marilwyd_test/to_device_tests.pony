@@ -462,3 +462,101 @@ actor \nodoc\ _KeepUp is SyncReceiver
     else
       _send()
     end
+
+class \nodoc\ iso _TestAFloodEvictsOnlyItsOwnSender is UnitTest
+  """
+  The reason a device keeps one to-device queue per sending account.
+
+  Any signed-in account may send to any device it can name, so with a
+  single queue a stranger could push past the bound and evict a handshake
+  the device was in the middle of with someone else. Separated, the only
+  messages a flood costs are the flooder's own.
+
+  Driven well past `ToDeviceLimit()` from one account, with a single
+  message from another sent first. With one shared queue that first message
+  is the first thing discarded.
+  """
+  fun name(): String => "todevice/a flood evicts only the flooder's messages"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(30_000_000_000)
+    try
+      let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
+      device.deliver_to_device(
+        ToDeviceEvent(
+          "@bob:example.test",
+          "m.key.verification.start",
+          "{\"from\":\"bob\"}"))
+      var sent: USize = 0
+      while sent < (ToDeviceLimit() * 2) do
+        device.deliver_to_device(
+          ToDeviceEvent("@mallory:example.test", "m.flood", "{}"))
+        sent = sent + 1
+      end
+      device.sync(USize(0), 0, _ExpectBobSurvived(h))
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _ExpectBobSurvived is SyncReceiver
+  let _h: TestHelper
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be synced(view: SyncView) =>
+    var from_bob: USize = 0
+    var from_mallory: USize = 0
+    for message in view.to_device.values() do
+      if message.sender == "@bob:example.test" then
+        from_bob = from_bob + 1
+      else
+        from_mallory = from_mallory + 1
+      end
+    end
+    _h.assert_eq[USize](
+      1, from_bob, "a flood from one account evicted another's message")
+    _h.assert_eq[USize](
+      ToDeviceLimit(),
+      from_mallory,
+      "the flooding account kept more than its own share")
+    _h.complete(true)
+
+class \nodoc\ iso _TestToDeviceKeepsTheOrderItArrived is UnitTest
+  """
+  Messages from two senders come back interleaved in arrival order.
+
+  Order within one sender is what a crypto machine needs — a handshake is a
+  sequence — and merging the queues on the device position preserves the
+  order across senders as well.
+  """
+  fun name(): String => "todevice/messages keep the order they arrived in"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
+      device
+        .> deliver_to_device(ToDeviceEvent("@a:x", "m.one", "{}"))
+        .> deliver_to_device(ToDeviceEvent("@b:x", "m.two", "{}"))
+        .> deliver_to_device(ToDeviceEvent("@a:x", "m.three", "{}"))
+        .> deliver_to_device(ToDeviceEvent("@b:x", "m.four", "{}"))
+        .> sync(USize(0), 0, _ExpectArrivalOrder(h))
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _ExpectArrivalOrder is SyncReceiver
+  let _h: TestHelper
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be synced(view: SyncView) =>
+    let order = String
+    for message in view.to_device.values() do
+      order.append(message.kind)
+      order.append(" ")
+    end
+    _h.assert_eq[String]("m.one m.two m.three m.four ", order.clone())
+    _h.complete(true)

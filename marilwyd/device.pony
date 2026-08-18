@@ -35,7 +35,18 @@ actor Device
   // acknowledged the same way but read differently: one is history a
   // client displays, the other is a handshake between two devices that
   // marilwyd carries without reading.
-  var _to_device: Pending[ToDeviceEvent] = Pending[ToDeviceEvent]
+  //
+  // One queue per sending account, not one queue. Any signed-in account
+  // may send to any device it can name, so a single queue would let a
+  // stranger push a hundred messages and evict a handshake this device was
+  // in the middle of. Separated, the only messages a flood can cost are
+  // the flooder's own.
+  //
+  // Keyed by account rather than by device, and that is what bounds it:
+  // accounts come from the credentials file and cannot be created, while
+  // anyone may mint devices without limit by signing in again.
+  embed _to_device: Map[String, Pending[ToDeviceEvent]] =
+    _to_device.create()
 
   new create(id': DeviceId, epoch: StreamEpoch) =>
     _id = id'
@@ -102,7 +113,13 @@ actor Device
     Take a message another device addressed to this one.
     """
     _position = _position + 1
-    _to_device = _to_device.push(_position, event, ToDeviceLimit())
+    let queue =
+      try
+        _to_device(event.sender)?
+      else
+        Pending[ToDeviceEvent]
+      end
+    _to_device(event.sender) = queue.push(_position, event, ToDeviceLimit())
     _wake()
 
   be deliver(event: RoomEvent) =>
@@ -146,9 +163,9 @@ actor Device
     // Asking for what comes after a position is how a client confirms it
     // received everything up to it.
     _pending = _pending.acknowledged(since)
-    _to_device = _to_device.acknowledged(since)
+    _acknowledge_to_device(since)
 
-    if (_pending.size() > 0) or (_to_device.size() > 0) or (wait == 0)
+    if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0)
       or (since is None) or _account_unseen(since)
     then
       _answer(receiver, since)
@@ -180,6 +197,97 @@ actor Device
       _parked = None
       _parked_since = None
     end
+
+  fun ref _acknowledge_to_device(since: (USize | None)) =>
+    """
+    Drop what every sender's queue has had confirmed.
+
+    An emptied queue is left in place rather than removed. Nothing could
+    observe the difference — a queue answers from a position, so an
+    acknowledged message is filtered out whether or not its queue is still
+    there — and there is nothing to reclaim: a sender is an account, and
+    accounts come from the credentials file, so the map is bounded by that
+    file however long the process runs.
+    """
+    for (sender, queue) in _to_device.pairs() do
+      _to_device(sender) = queue.acknowledged(since)
+    end
+
+  fun _to_device_waiting(): USize =>
+    var waiting: USize = 0
+    for queue in _to_device.values() do
+      waiting = waiting + queue.size()
+    end
+    waiting
+
+  fun _to_device_dropped(): USize =>
+    var dropped: USize = 0
+    for queue in _to_device.values() do
+      dropped = dropped + queue.dropped()
+    end
+    dropped
+
+  fun _to_device_since(since: (USize | None)): Array[ToDeviceEvent] val =>
+    """
+    Every sender's owed messages, back in the order they arrived.
+
+    Each queue is already in position order, so this repeatedly takes
+    whichever queue's next message is earliest. Order within one sender is
+    what matters to a crypto machine — a handshake is a sequence — and
+    merging on the device position preserves the order across senders too.
+
+    The work is the messages owed times the senders owing them. Both are
+    bounded — `ToDeviceLimit()` per sender, and a sender is an account —
+    so the worst case needs every account on the server to be mid-flood at
+    one device, and it is paid by that device alone. In ordinary use a
+    device hears from one or two accounts at a time.
+    """
+    let slices = Array[Array[(USize, ToDeviceEvent)] val]
+    for queue in _to_device.values() do
+      let slice = queue.paired(since)
+      if slice.size() > 0 then
+        slices.push(slice)
+      end
+    end
+
+    let cursors = Array[USize].init(0, slices.size())
+    let merged = recover iso Array[ToDeviceEvent] end
+    var taken: USize = 0
+    var total: USize = 0
+    for slice in slices.values() do
+      total = total + slice.size()
+    end
+
+    while taken < total do
+      var best: (USize | None) = None
+      var best_at: USize = 0
+      for (index, slice) in slices.pairs() do
+        try
+          let cursor = cursors(index)?
+          if cursor < slice.size() then
+            (let at: USize, _) = slice(cursor)?
+            if (best is None) or (at < best_at) then
+              best = index
+              best_at = at
+            end
+          end
+        end
+      end
+      match best
+      | let index: USize =>
+        try
+          let cursor = cursors(index)?
+          (_, let event: ToDeviceEvent) = slices(index)?(cursor)?
+          merged.push(event)
+          cursors(index)? = cursor + 1
+        end
+        taken = taken + 1
+      else
+        // Unreachable: `taken < total` means some queue still has one.
+        break
+      end
+    end
+    consume merged
 
   fun _account_unseen(since: (USize | None)): Bool =>
     """
@@ -224,5 +332,5 @@ actor Device
         owed,
         state',
         account,
-        _to_device.since(since),
-        (_pending.dropped() + _to_device.dropped()) > 0))
+        _to_device_since(since),
+        (_pending.dropped() + _to_device_dropped()) > 0))
