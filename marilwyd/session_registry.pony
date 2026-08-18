@@ -112,6 +112,31 @@ actor SessionRegistry
     end
     receiver.devices_refused()
 
+  be lookup_users(
+    wanted: Array[String] val,
+    receiver: UserLookupReceiver tag)
+  =>
+    """
+    Sort accounts into those marilwyd holds and those it does not.
+
+    A published key is not a session, so this answers for any account that
+    has ever signed in during this process — including one whose devices
+    are all signed out. Nothing here reveals that: a caller learns the same
+    thing from the keys themselves, which are public by design, and an
+    account with nothing published is indistinguishable from one that has
+    never existed.
+    """
+    let known = recover iso Array[(String, User tag)] end
+    let unknown = recover iso Array[String] end
+    for user_id in wanted.values() do
+      try
+        known.push((user_id.clone(), _users(user_id)?))
+      else
+        unknown.push(user_id.clone())
+      end
+    end
+    receiver.users_found(consume known, consume unknown)
+
   be revoke(supplied: String, receiver: RevocationReceiver tag) =>
     """
     End the session that holds `supplied` — the caller's own.
@@ -175,20 +200,33 @@ actor SessionRegistry
 
   fun ref _remove_device(user_id: String, device_id: String) =>
     """
-    Drop `user_id`'s session for `device_id`, if they have one.
+    Delete `user_id`'s device: its session, its actor and its keys.
 
-    Stops at the first match, which is what keeps the enclosing loop safe:
-    `Array.delete` compacts, and `ArrayValues` does not adjust its cursor
-    for that, so an iteration that continued after removing would skip the
-    next session. Any future bulk operation must remove one per pass for
-    the same reason.
+    All three, because a deletion that left any of them would not be one. A
+    device left in `_streams` could be asked for again by a later login and
+    hand back the queue that was supposed to be gone; keys left published
+    would tell everyone else to encrypt to a device that can no longer read
+    what they send.
+
+    Its session is dropped at the first match, which is what keeps the
+    enclosing loop safe: `Array.delete` compacts, and `ArrayValues` does not
+    adjust its cursor for that, so an iteration that continued after
+    removing would skip the next session. Any future bulk operation must
+    remove one per pass for the same reason.
     """
     for (index, session) in _sessions.pairs() do
       if session.device.matches(device_id) and (session.user_id == user_id)
       then
         _remove(index)
-        return
+        break
       end
+    end
+
+    try
+      (_, _) = _streams(user_id)?.remove(device_id)?
+    end
+    try
+      _users(user_id)?.forget_device(device_id)
     end
 
   fun ref _device_for(

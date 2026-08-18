@@ -12,3 +12,15 @@ interface tag UserReceiver
     """
     No live session holds that token.
     """
+
+interface tag UserLookupReceiver
+  """
+  Something waiting to be told which of the accounts it named are held.
+  """
+  be users_found(
+    known: Array[(String, User tag)] val,
+    unknown: Array[String] val)
+    """
+    The accounts marilwyd holds, paired with their actors, and the names it
+    holds nothing for.
+    """

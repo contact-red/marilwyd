@@ -5,10 +5,10 @@ web client — one origin, one process.
 
 ## Status
 
-A skeleton, but a working one: Element loads, a local user signs in, the
-token that comes back can be spent, and the client settles into a real sync
-loop instead of retrying, and rooms carry messages between clients.
-Eighteen Matrix endpoints, listed below.
+**Element signs in and reaches the app.** A local user logs in, the client
+settles into a real sync loop instead of retrying, finishes setting up
+encryption keys, and renders the room list. Twenty-four Matrix endpoints,
+listed below.
 
 One account can be signed in from several clients at once — a browser, a
 phone, a desktop — each with its own device id and its own token, and each
@@ -18,14 +18,19 @@ Accounts come from a file of password hashes — there is no registration
 endpoint. Sessions live in memory, so a restart ends all of them. Everything
 Element asks for beyond the table below answers `M_UNRECOGNIZED`.
 
-**Element does not become usable yet, and `/sync` is not what is missing.**
-It clears its "Syncing…" screen only once a first sync *and* a cross-signing
-key query have both completed. marilwyd implements no crypto endpoints, so
-`POST /_matrix/client/v3/keys/query` answers `M_UNRECOGNIZED`, matrix-js-sdk
-retries it forever, and the screen stays. Underneath it the sync loop is
-healthy: once the client stops catching up it re-asks every 25 seconds,
-where before this it re-asked several times a second. Crypto is the next
-piece of work; see `docs/next-increment.md`.
+Encryption is stored and served, not performed. marilwyd holds the keys
+clients publish and hands them back — device keys, cross-signing keys,
+signatures, and the description of a key backup — which is what a client
+needs to finish signing in. It verifies no signature and encrypts nothing:
+that is the clients' job, and `SECURITY.md` says exactly what crosses which
+line. Two devices of one account still cannot verify each other, because
+`POST /keys/claim` and the to-device channel are not implemented; see
+`docs/next-increment.md`.
+
+A settled session costs five syncs and one `keys/query` per seventy
+seconds. That number is in the README because the naive version of the same
+endpoint — answering `keys/query` with empty key maps — produced 10,325
+requests in the same span.
 
 Out of scope: the Application Service API, permanently — IRC and Discord
 bridging will be built natively instead. Federation, for now.
@@ -178,6 +183,14 @@ public.
 | GET | `/_matrix/client/v3/pushrules/` | an empty ruleset |
 | POST | `/_matrix/client/v3/user/:userId/filter` | a constant `filter_id` |
 | GET | `/_matrix/client/v3/user/:userId/filter/:filterId` | an empty filter |
+| PUT | `/_matrix/client/v3/user/:userId/account_data/:type` | stores it |
+| GET | `/_matrix/client/v3/user/:userId/account_data/:type` | reads it back |
+| POST | `/_matrix/client/v3/keys/upload` | publishes a device's keys |
+| POST | `/_matrix/client/v3/keys/query` | answers an account's keys |
+| POST | `/_matrix/client/v3/keys/device_signing/upload` | cross-signing keys |
+| POST | `/_matrix/client/v3/keys/signatures/upload` | merges signatures |
+| POST | `/_matrix/client/v3/room_keys/version` | makes a backup version |
+| GET | `/_matrix/client/v3/room_keys/version` | the current one |
 | GET, POST, PUT, DELETE | `/_matrix` | `M_UNRECOGNIZED` |
 | GET, POST, PUT, DELETE | `/_matrix/*` | `M_UNRECOGNIZED` |
 

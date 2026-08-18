@@ -134,6 +134,26 @@ primitive Routes
         "/_matrix/client/v3/user/:userId/filter/:filterId",
         _AuthedJSON(sessions, EmptyFilter()))
 
+      // Encryption. A client will not finish signing in without all four of
+      // these: removing any one of them was measured to leave Element at
+      // "Setting up keys" or "Unable to set up keys" rather than in the app.
+      .> post("/_matrix/client/v3/keys/upload", _UploadKeys(sessions))
+      .> post("/_matrix/client/v3/keys/query", _QueryKeys(sessions))
+      .> post(
+        "/_matrix/client/v3/keys/device_signing/upload",
+        _UploadCrossSigningKeys(sessions))
+      .> post(
+        "/_matrix/client/v3/keys/signatures/upload",
+        _UploadSignatures(sessions))
+      // Not encryption itself, but part of the same gate: a client that
+      // cannot create a backup version stops at "Unable to set up keys".
+      .> post(
+        "/_matrix/client/v3/room_keys/version",
+        _CreateKeyBackup(sessions))
+      .> get(
+        "/_matrix/client/v3/room_keys/version",
+        _KeyBackupVersion(sessions))
+
       // A method with no row at all is hobby's business, and hobby answers
       // it with a plain-text `Method Not Allowed` carrying no `errcode` —
       // the exact failure `UnrecognizedRequest` exists to prevent. These

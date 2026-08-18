@@ -562,3 +562,79 @@ primitive _AnyEpoch
     else
       error
     end
+
+class \nodoc\ iso _TestADeletedDeviceIdIsNotHandedBack is UnitTest
+  """
+  Deleting a device has to mean deleting it.
+
+  A login may name the device id it stored, and that is honoured when the
+  account already has it — which is what lets a client that signed out find
+  the queue kept for it. A deleted device must fall outside that, or the
+  buffer a client asked to be rid of comes back on the next login, along
+  with the device id other people had been told was gone.
+  """
+  fun name(): String => "devices/a deleted device id is not handed back"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      _ReuseDeletedDevice(h, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _ReuseDeletedDevice is
+  (TokenReceiver & UserReceiver & RevocationReceiver)
+  """
+  Sign in, delete that device, then sign in again asking for it by name.
+
+  The token is resolved before the delete, and that step is load-bearing
+  rather than decorative: a device's actor is made on first use, so without
+  a resolve the registry has no record of the device to hand back and the
+  test would pass whether or not deleting removed one.
+  """
+  let _h: TestHelper
+  let _registry: SessionRegistry
+  var _deleted: String = ""
+  var _token: (AccessToken | None) = None
+
+  new create(h: TestHelper, epoch: StreamEpoch) =>
+    _h = h
+    _registry = SessionRegistry(epoch)
+    _registry.issue("@alice:example.test", None, this)
+
+  be token_resolved(session: Session) =>
+    match _token
+    | let t: AccessToken =>
+      _registry.revoke_devices(
+        t.reveal(), recover val [_deleted] end, this)
+    end
+
+  be token_rejected() =>
+    _h.fail("the token the registry issued did not resolve")
+    _h.complete(false)
+
+  be token_issued(token: AccessToken, device: DeviceId) =>
+    if _deleted.size() == 0 then
+      _deleted = device.string()
+      _token = token
+      _registry.resolve(token.reveal(), this)
+    else
+      let issued: String = device.string()
+      _h.assert_false(
+        issued == _deleted,
+        "a deleted device id was handed back to a later login")
+      _h.complete(true)
+    end
+
+  be session_revoked() =>
+    // Asking for the deleted id by name. A fresh one must come back.
+    _registry.issue("@alice:example.test", _deleted, this)
+
+  be revocation_rejected() =>
+    _h.fail("deleting one's own device was refused")
+    _h.complete(false)
+
+  be token_refused() =>
+    _h.fail("the CSPRNG refused to mint a token")
+    _h.complete(false)

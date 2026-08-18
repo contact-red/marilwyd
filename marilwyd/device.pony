@@ -1,3 +1,4 @@
+use "collections"
 use "time"
 
 actor Device
@@ -25,10 +26,38 @@ actor Device
     recover val Array[AccountDatum] end
   var _account_at: USize = 0
   var _position: USize = 0
+  // One-time keys are the one piece of key material that belongs to a
+  // device rather than to its account: they are consumed one per session
+  // another device opens, so they cannot be shared between the devices of
+  // one user the way published identity keys are.
+  embed _one_time: Map[String, String] = _one_time.create()
 
   new create(id': DeviceId, epoch: StreamEpoch) =>
     _id = id'
     _epoch = epoch
+
+  be take_one_time_keys(
+    keys: Array[(String, String)] val,
+    receiver: OneTimeKeyReceiver tag)
+  =>
+    """
+    Add one-time keys to this device's pool and say how many it now holds.
+
+    The count is answered rather than assumed because a client uses it to
+    decide whether to upload more, and it is a count of keys marilwyd is
+    holding — not of keys it was sent. Keys past the cap are refused, which
+    keeps the two the same number.
+
+    Keyed by key id, so a client re-sending one it has already uploaded
+    leaves the pool the size it was rather than growing it.
+    """
+    for (key_id, content) in keys.values() do
+      if _one_time.size() >= MaxOneTimeKeys() then
+        break
+      end
+      _one_time(key_id.clone()) = content.clone()
+    end
+    receiver.one_time_keys_held(_one_time.size())
 
   be deliver(event: RoomEvent) =>
     """
