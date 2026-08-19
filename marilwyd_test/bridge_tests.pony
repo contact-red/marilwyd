@@ -85,6 +85,19 @@ class \nodoc\ iso _TestADeclaredRoomIdIsChecked is UnitTest
       end
     end
 
+primitive \nodoc\ _TestNetwork
+  """
+  A network for tests that declare a room without connecting to one.
+  """
+  fun apply(): BridgedNetwork =>
+    BridgedNetwork(
+      "testnet",
+      "irc.example.test",
+      "6697",
+      true,
+      recover val ["marilwyd"] end,
+      recover val Array[BridgedChannel] end)
+
 primitive \nodoc\ _ReadFixture
   fun apply(h: TestHelper): (Bridges | StartupError) =>
     let auth = FileAuth(h.env.root)
@@ -175,7 +188,8 @@ actor \nodoc\ _DeclareThenLook is
   new create(h: TestHelper, channel: BridgedChannel, hs: Homeserver) =>
     _h = h
     _rooms = RoomDirectory(hs)
-    _rooms.declare(channel, "@irc_testnet_marilwyd:example.test", this)
+    _rooms.declare(
+      channel, _TestNetwork(), "@irc_testnet_marilwyd:example.test", this)
 
   be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
     // Only once the room says it exists, so nothing here races its
@@ -243,7 +257,7 @@ actor \nodoc\ _DeclareWithId is DeclaredRoomReceiver
     _h = h
     _wanted = wanted
     RoomDirectory(hs).declare(
-      channel, "@irc_testnet_marilwyd:example.test", this)
+      channel, _TestNetwork(), "@irc_testnet_marilwyd:example.test", this)
 
   be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
     _h.assert_eq[String](_wanted, id.string())

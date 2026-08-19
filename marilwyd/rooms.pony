@@ -227,7 +227,8 @@ actor _CreateRoomHandler is
     else
       match \exhaustive\ _CreateRoomWanted(_body, _server_name)
       | let wanted: CreateRoomRequest =>
-        _rooms.create_room(session.user_id, session.user, wanted, this)
+        _rooms.create_room(
+          session.user_id, session.user, wanted, this, session.user)
       | let why: InvalidAlias =>
         _respond(
           stallion.StatusBadRequest,
@@ -268,15 +269,21 @@ class val _JoinRoom
   """
   let _sessions: SessionRegistry tag
   let _rooms: RoomDirectory tag
+  let _links: LinkDirectory tag
 
-  new val create(sessions: SessionRegistry tag, rooms: RoomDirectory tag) =>
+  new val create(
+    sessions: SessionRegistry tag,
+    rooms: RoomDirectory tag,
+    links: LinkDirectory tag)
+  =>
     _sessions = sessions
     _rooms = rooms
+    _links = links
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _MembershipHandler(consume ctx, _sessions, _rooms, true)
+    _MembershipHandler(consume ctx, _sessions, _rooms, _links, true)
 
 class val _LeaveRoom
   """
@@ -288,32 +295,48 @@ class val _LeaveRoom
   """
   let _sessions: SessionRegistry tag
   let _rooms: RoomDirectory tag
+  let _links: LinkDirectory tag
 
-  new val create(sessions: SessionRegistry tag, rooms: RoomDirectory tag) =>
+  new val create(
+    sessions: SessionRegistry tag,
+    rooms: RoomDirectory tag,
+    links: LinkDirectory tag)
+  =>
     _sessions = sessions
     _rooms = rooms
+    _links = links
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _MembershipHandler(consume ctx, _sessions, _rooms, false)
+    _MembershipHandler(consume ctx, _sessions, _rooms, _links, false)
 
 actor _MembershipHandler is
   (hobby.HandlerReceiver & UserReceiver & RoomLookupReceiver
-    & MembershipReceiver)
+    & MembershipReceiver & BridgeReceiver & JoinReceiver)
   """
-  Joining and leaving, which differ only in which behaviour they call.
+  Joining and leaving, which differ only in which behaviour they call —
+  except that joining a bridged room is not marilwyd's business alone.
+
+  Entering one means holding an IRC connection under that person's own
+  nickname, so the join opens one and answers only once the channel has
+  been entered. A network that refuses is a Matrix room the client does
+  not enter: membership means connected on both sides, which is what makes
+  a half-joined state unrepresentable rather than merely unlikely.
   """
   embed _handler: hobby.RequestHandler
   let _rooms: RoomDirectory tag
+  let _links: LinkDirectory tag
   let _params: Map[String, String] val
   let _joining: Bool
   var _session: (Session | None) = None
+  var _room: (Room tag | None) = None
 
   new create(
     ctx: hobby.HandlerContext iso,
     sessions: SessionRegistry tag,
     rooms: RoomDirectory tag,
+    links: LinkDirectory tag,
     joining: Bool)
   =>
     let supplied = _BearerToken(ctx.request)
@@ -323,6 +346,7 @@ actor _MembershipHandler is
     _params = ctx.params
     _joining = joining
     _rooms = rooms
+    _links = links
     _handler = hobby.RequestHandler(consume ctx)
 
     match supplied
@@ -346,14 +370,67 @@ actor _MembershipHandler is
     _respond(stallion.StatusUnauthorized, UnknownToken())
 
   be room_found(room: Room tag) =>
+    _room = room
     match _session
     | let s: Session =>
+      // Asked either way: a join needs a connection opened before it can
+      // succeed, and a leave needs one closed after it does.
+      room.bridged(this)
+    end
+
+  be room_is_local() =>
+    match (_session, _room)
+    | (let s: Session, let room: Room tag) =>
       if _joining then
-        room.join(s.user_id, s.user, this)
+        room.join(s.user_id, s.user, this, s.user)
       else
         room.leave(s.user_id, this)
       end
     end
+
+  be room_is_bridged(channel: BridgedChannel, network: BridgedNetwork) =>
+    match (_session, _room)
+    | (let s: Session, let room: Room tag) =>
+      if _joining then
+        _links.open(s.user_id, channel, network, room, this)
+      else
+        // Leaving closes the connection, which is what makes membership
+        // and being on the channel the same fact rather than two that can
+        // disagree.
+        _links.close(s.user_id, channel.channel, network.name)
+        room.leave(s.user_id, this)
+      end
+    end
+
+  be joined_with(channel: String, link: UserLink tag) =>
+    """
+    The channel was entered, and this is the connection that entered it.
+
+    The room takes the connection as what carries this member's words
+    outward, and then the member joins — in that order, so a message sent
+    the instant after the join has somewhere to go.
+    """
+    match (_session, _room)
+    | (let s: Session, let room: Room tag) =>
+      room.join(s.user_id, s.user, this, s.user)
+      room.carry(s.user_id, link)
+    end
+
+  be join_allowed(channel: String) =>
+    // Unused: a bridged join answers through `joined_with`, which carries
+    // the connection with it. Present because `JoinReceiver` names both
+    // and a handler that implemented only one would not compile.
+    None
+
+  be join_refused(channel: String) =>
+    // The far side would not have them, so neither will the room. A client
+    // that cannot reach the channel is not a member of a room whose whole
+    // content comes from it.
+    _respond(
+      stallion.StatusForbidden,
+      MatrixError(
+        "M_FORBIDDEN",
+        "marilwyd could not join " + channel + " for you"))
 
   be room_missing() =>
     _respond(

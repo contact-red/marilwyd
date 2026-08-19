@@ -22,6 +22,7 @@ primitive Routes
     config: Config,
     sessions: SessionRegistry tag,
     rooms: RoomDirectory tag,
+    links: LinkDirectory tag,
     epoch: StreamEpoch,
     log: (OutStream tag | None) = None)
     : hobby.BuildResult
@@ -112,10 +113,10 @@ primitive Routes
       .> post("/_matrix/client/v3/publicRooms", _PublicRooms(sessions, rooms))
       .> post(
         "/_matrix/client/v3/join/:roomIdOrAlias",
-        _JoinRoom(sessions, rooms))
+        _JoinRoom(sessions, rooms, links))
       .> post(
         "/_matrix/client/v3/rooms/:roomId/leave",
-        _LeaveRoom(sessions, rooms))
+        _LeaveRoom(sessions, rooms, links))
       .> put(
         "/_matrix/client/v3/rooms/:roomId/send/:eventType/:txnId",
         _SendEvent(sessions, rooms))

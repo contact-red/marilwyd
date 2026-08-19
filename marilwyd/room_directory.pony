@@ -25,9 +25,10 @@ actor RoomDirectory
 
   be create_room(
     user_id: String,
-    user: User tag,
+    user: RoomMember tag,
     wanted: CreateRoomRequest,
-    receiver: RoomCreationReceiver tag)
+    receiver: RoomCreationReceiver tag,
+    watching: (User tag | None) = None)
   =>
     match wanted.alias
     | let alias: RoomAlias =>
@@ -57,7 +58,7 @@ actor RoomDirectory
       end
       // The room answers, not this actor: only the room knows whether the
       // events that make it a room were written.
-      room.created_by(user_id.clone(), user, wanted, receiver)
+      room.created_by(user_id.clone(), user, wanted, receiver, watching)
     else
       // Fail closed. A room id is the only thing gating access to a room,
       // so there is no weaker one worth handing out.
@@ -66,6 +67,7 @@ actor RoomDirectory
 
   be declare(
     channel: BridgedChannel,
+    network: BridgedNetwork,
     creator: String,
     receiver: DeclaredRoomReceiver tag)
   =>
@@ -113,6 +115,7 @@ actor RoomDirectory
       creator,
       CreateRoomRequest(channel.room_name, channel.alias, true),
       channel,
+      network,
       receiver)
 
   be with_room(room_id: String, receiver: RoomLookupReceiver tag) =>
