@@ -83,6 +83,23 @@ class ref RoomState
     """
     _members.size()
 
+  fun member_events(): Array[RoomEvent] val =>
+    """
+    The current membership of the room, one event per member.
+
+    A keyed read rather than a filter over everything: `_state` is already
+    grouped by kind, so this is the slot for `m.room.member` and nothing
+    else is visited. On a bridged channel that is the difference between
+    touching one map and walking every state event in the room.
+    """
+    let found = recover iso Array[RoomEvent] end
+    try
+      for event in _state("m.room.member")?.values() do
+        found.push(event)
+      end
+    end
+    consume found
+
   fun state_events(): Array[RoomEvent] val =>
     """
     Every current state event. What a joining member is sent so the room is

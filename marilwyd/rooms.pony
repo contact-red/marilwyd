@@ -482,40 +482,82 @@ actor _SendEventHandler is
   be throttled() => None
   be unthrottled() => None
 
+primitive AllState
+  """
+  Ask a room for every current state event.
+  """
+  fun apply(room: Room tag, user_id: String, receiver: StateReceiver tag) =>
+    room.state(user_id, receiver)
+
+  fun render(events: Array[RoomEvent] val): String =>
+    StateEvents(events)
+
+primitive MembersOnly
+  """
+  Ask a room for its membership alone.
+
+  Its own reading rather than a filter over `AllState`: a client asking who
+  is in a room should not be answered by sending it every state event and
+  hoping it discards the rest, and on a bridged channel the difference is
+  one map lookup against walking everything the room has ever recorded.
+  """
+  fun apply(room: Room tag, user_id: String, receiver: StateReceiver tag) =>
+    room.members(user_id, receiver)
+
+  fun render(events: Array[RoomEvent] val): String =>
+    RoomMembers(events)
+
+type _StateReading is (AllState | MembersOnly)
+  """
+  Which of a room's two readings a handler is serving.
+
+  Two endpoints that differ in one call and one rendering, so this is what
+  they differ by rather than two handlers alike in fifty lines.
+  """
+
 class val _RoomState
   """
-  `GET /_matrix/client/v3/rooms/{roomId}/state`.
+  `GET /_matrix/client/v3/rooms/{roomId}/state`, and `/members`.
 
-  The only thing a room can answer about its past, because it keeps no
+  The only things a room can answer about its past, because it keeps no
   messages — current state is not history.
   """
   let _sessions: SessionRegistry tag
   let _rooms: RoomDirectory tag
+  let _reading: _StateReading
 
-  new val create(sessions: SessionRegistry tag, rooms: RoomDirectory tag) =>
+  new val create(
+    sessions: SessionRegistry tag,
+    rooms: RoomDirectory tag,
+    reading: _StateReading = AllState)
+  =>
     _sessions = sessions
     _rooms = rooms
+    _reading = reading
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _RoomStateHandler(consume ctx, _sessions, _rooms)
+    _RoomStateHandler(consume ctx, _sessions, _rooms, _reading)
 
 actor _RoomStateHandler is
   (hobby.HandlerReceiver & UserReceiver & RoomLookupReceiver & StateReceiver)
   embed _handler: hobby.RequestHandler
   let _rooms: RoomDirectory tag
   let _params: Map[String, String] val
+  let _reading: _StateReading
   var _session: (Session | None) = None
 
   new create(
     ctx: hobby.HandlerContext iso,
     sessions: SessionRegistry tag,
-    rooms: RoomDirectory tag)
+    rooms: RoomDirectory tag,
+    reading: _StateReading)
   =>
     let supplied = _BearerToken(ctx.request)
     _params = ctx.params
     _rooms = rooms
+    _reading = reading
     _handler = hobby.RequestHandler(consume ctx)
 
     match supplied
@@ -539,7 +581,11 @@ actor _RoomStateHandler is
 
   be room_found(room: Room tag) =>
     match _session
-    | let s: Session => room.state(s.user_id, this)
+    | let s: Session =>
+      match \exhaustive\ _reading
+      | AllState => AllState(room, s.user_id, this)
+      | MembersOnly => MembersOnly(room, s.user_id, this)
+      end
     end
 
   be room_missing() =>
@@ -548,7 +594,12 @@ actor _RoomStateHandler is
       MatrixError("M_NOT_FOUND", NoSuchRoom.message()))
 
   be state_listed(events: Array[RoomEvent] val) =>
-    _respond(stallion.StatusOK, StateEvents(events))
+    let body =
+      match \exhaustive\ _reading
+      | AllState => AllState.render(events)
+      | MembersOnly => MembersOnly.render(events)
+      end
+    _respond(stallion.StatusOK, body)
 
   be state_refused(why: NotInRoom) =>
     _respond(

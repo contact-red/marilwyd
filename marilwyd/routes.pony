@@ -122,6 +122,14 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/rooms/:roomId/state",
         _RoomState(sessions, rooms))
+      // Asked as soon as a client renders a room, and again for every
+      // participant it does not recognise.
+      .> get(
+        "/_matrix/client/v3/rooms/:roomId/members",
+        _RoomState(sessions, rooms, MembersOnly))
+      .> get(
+        "/_matrix/client/v3/profile/:userId",
+        _Profile(sessions, hs))
       .> put(
         "/_matrix/client/v3/user/:userId/account_data/:type",
         _SetAccountData(sessions))

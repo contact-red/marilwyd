@@ -82,7 +82,6 @@ storming.
 | Method | Path | Cost of leaving it |
 |---|---|---|
 | GET | `capabilities` | Element assumes defaults |
-| GET | `profile/{userId}` | no display name or avatar anywhere |
 | GET | `voip/turnServer` | no calls |
 | GET | `thirdparty/protocols` | no bridge list in the UI |
 | POST | `register` | out of scope permanently |
@@ -90,8 +89,11 @@ storming.
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | no dehydration |
 | GET | `unstable/org.matrix.msc4143/rtc/transports` | no element call |
 
-`profile` is the cheapest of these and the most visible: it is why the
-client shows a user id where a name belongs.
+What a client in a room asks for and does not get, from a real session:
+`POST /rooms/{roomId}/receipt/m.read/{eventId}` and `/read_markers`, both
+retried on a loop, and `PUT /rooms/{roomId}/typing/{userId}`. All three are
+the same shape — store a thing per room and echo it back through `/sync` —
+so they are one increment rather than three.
 
 ## What was measured, so it need not be measured again
 

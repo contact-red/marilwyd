@@ -216,6 +216,22 @@ actor Room
         _NameIn(_state.content_of("m.room.canonical_alias"), "alias"),
         _state.size()))
 
+  be members(user_id: String, receiver: StateReceiver tag) =>
+    """
+    Answer who is in this room, to a member of it.
+
+    Members only, like `state`: a room id is the whole of the access
+    control, so anyone holding one may join and then read this — but
+    reading it without joining would let somebody enumerate a room's
+    membership from the id alone, which is a smaller thing to hold than a
+    membership.
+    """
+    if _state.is_member(user_id) then
+      receiver.state_listed(_state.member_events())
+    else
+      receiver.state_refused(NotInRoom)
+    end
+
   be state(user_id: String, receiver: StateReceiver tag) =>
     if _state.is_member(user_id) then
       receiver.state_listed(_state.state_events())

@@ -378,6 +378,35 @@ primitive UnknownToken
       .update("error", "Unrecognised access token")
       .update("soft_logout", true))
 
+primitive RoomMembers
+  """
+  The body of `GET /_matrix/client/v3/rooms/{roomId}/members`.
+
+  `chunk` rather than `events`, which is this endpoint's own spelling and
+  not the one `/state` uses — a client reads the two through different code
+  and neither accepts the other's field.
+
+  Every membership is a join here, because marilwyd has no other kind: no
+  invites, no bans, and a leave removes the event rather than rewriting it.
+  A client filtering by `not_membership=leave`, which Element sends, gets
+  the same answer either way.
+  """
+  fun apply(events: Array[RoomEvent] val): String =>
+    recover val
+      let out = String(256)
+      out.append("{\"chunk\":[")
+      var first = true
+      for event in events.values() do
+        if not first then
+          out.append(",")
+        end
+        first = false
+        out.append(event.render())
+      end
+      out.append("]}")
+      out
+    end
+
 primitive AliasResolved
   """
   The body of `GET /_matrix/client/v3/directory/room/{roomAlias}`.
