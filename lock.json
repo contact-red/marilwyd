@@ -1,7 +1,7 @@
 {
   "locks": [
     {
-      "locator": "github.com/ponylang/uri.git",
+      "locator": "github.com/contact-red/yaml.git",
       "revision": "0.1.0"
     },
     {
@@ -21,7 +21,7 @@
       "revision": "0.9.0"
     },
     {
-      "locator": "/home/red/projects/contact.red/irc",
+      "locator": "github.com/contact-red/irc.git",
       "revision": "main"
     },
     {
@@ -33,7 +33,7 @@
       "revision": "0.10.0"
     },
     {
-      "locator": "github.com/contact-red/yaml.git",
+      "locator": "github.com/ponylang/uri.git",
       "revision": "0.1.0"
     }
   ]

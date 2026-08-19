@@ -2,8 +2,8 @@
   "packages": [],
   "deps": [
     {
-      "locator": "/home/red/projects/contact.red/irc",
-      "version": ""
+      "locator": "github.com/contact-red/irc.git",
+      "version": "main"
     },
     {
       "locator": "github.com/ponylang/hobby.git",
