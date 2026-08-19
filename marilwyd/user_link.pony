@@ -3,6 +3,19 @@ use "json"
 use "time"
 use irc = "irc"
 
+primitive MaxEarlyMembers
+  """
+  How much of a channel's membership is held while there is no room yet.
+
+  The window is three actor hops wide — the connection tells the handler it
+  is in, the handler tells the room, the room tells the connection — so a
+  real channel fits its whole name list in it many times over. The bound is
+  here because the far side fills this and marilwyd does not, and anything
+  a stranger fills has a limit. Past it the room learns of somebody when
+  they speak, which is what used to happen to everybody.
+  """
+  fun apply(): USize => 1024
+
 primitive JoinDeadline
   """
   How long a Matrix client waits while its IRC connection is opened.
@@ -41,6 +54,12 @@ actor UserLink is (irc.IRCNotify & RoomMember)
   var _joined: Bool = false
   let _timers: Timers = Timers
   var _deadline: (Timer tag | None) = None
+  // Who the channel says is there, recorded until there is a room to tell.
+  // The server sends its name list the instant the channel is entered,
+  // which is before the room has handed back its own reference — so
+  // without this the list a person most wants, the one they arrive to, is
+  // the one always missed.
+  embed _early: Array[(String, String, Bool)] = _early.create()
 
   new create(
     user_id: String,
@@ -68,6 +87,14 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     IRC user who is not connected hears nothing.
     """
     _room = room
+    for (ghost, shown, present) in _early.values() do
+      if present then
+        room.admit_ghost(ghost, shown)
+      else
+        room.part_ghost(ghost)
+      end
+    end
+    _early.clear()
 
   be connect(link: irc.IRC tag, receiver: JoinReceiver tag) =>
     """
@@ -159,8 +186,11 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     reg: (irc.Registration val | None))
   =>
     """
-    Two jobs on one connection: notice when the channel was entered, and
-    carry what is said there into the room.
+    Everything this connection hears, sorted by what it means.
+
+    Registration and the channel's own membership are watched as closely as
+    what is said: a person reading a bridged channel wants to see who is
+    there before anybody speaks, and to see them come and go.
     """
     let settled =
       match reg
@@ -169,11 +199,31 @@ actor UserLink is (irc.IRCNotify & RoomMember)
         return
       end
 
-    if _joined and (m.command() == "PRIVMSG") then
-      _heard(m, settled)
+    if not _joined then
+      _watch_for_join(m, settled)
       return
     end
 
+    match m.command()
+    | "PRIVMSG" => _heard(irc', m, settled)
+    | "NOTICE" => _heard(irc', m, settled)
+    | "353" => _named(m, settled)
+    | "JOIN" => _arrived(m, settled)
+    | "PART" => _left(m, settled)
+    | "QUIT" => _left(m, settled)
+    | "KICK" => _kicked(m, settled)
+    | "NICK" => _renamed(m, settled)
+    end
+
+  fun ref _watch_for_join(m: irc.Message val, settled: irc.Registration val)
+  =>
+    """
+    This connection's own JOIN, which is what says the channel was entered.
+
+    A server may accept a JOIN and refuse it, so answering the Matrix
+    client before its own JOIN comes back would report a membership that
+    does not exist.
+    """
     if m.command() != "JOIN" then
       return
     end
@@ -199,16 +249,162 @@ actor UserLink is (irc.IRCNotify & RoomMember)
       receiver.joined_with(_channel, this)
     end
 
-  fun _heard(m: irc.Message val, settled: irc.Registration val) =>
+  fun ref _named(m: irc.Message val, settled: irc.Registration val) =>
     """
-    Relay one channel message into the room.
+    The channel's membership, as the server lists it on joining.
+
+    Everyone is admitted at once rather than when they first speak. A
+    channel's member list is what a person reads to know who they are
+    talking to, and a list that fills in only as people happen to talk
+    shows an empty room full of people.
+
+    Each name may carry a mode prefix — `@` for an operator, `+` for
+    voice — and which byte means which is the server's choice rather than
+    a constant, so the set is read from what the server announced.
+    """
+    let listed =
+      try
+        // `353` is `<me> <symbol> <channel> :<names>`, and the channel is
+        // the parameter before the trailing one.
+        let params = m.params()
+        if not settled.same_text(params(params.size() - 2)?, _channel) then
+          return
+        end
+        m.trailing()
+      else
+        return
+      end
+
+    let marks = irc.Isupport.prefixes(settled.isupport("PREFIX"))
+    for name in ChannelNames(listed, marks).values() do
+      match irc.Nicks(name)
+      | let who: irc.Nick =>
+        if not settled.same(who, settled.me()) then
+          _admit(who, settled)
+        end
+      end
+    end
+
+  fun ref _arrived(m: irc.Message val, settled: irc.Registration val) =>
+    """
+    Somebody joined the channel.
+    """
+    match m.nick()
+    | let who: irc.Nick =>
+      if not settled.same(who, settled.me()) then
+        _admit(who, settled)
+      end
+    end
+
+  fun ref _left(m: irc.Message val, settled: irc.Registration val) =>
+    """
+    Somebody left the channel, or the network.
+
+    A `QUIT` carries no channel — it means every channel they shared — so
+    it is applied here without checking one. Removing somebody who was not
+    a member is what `part_ghost` already ignores.
+    """
+    match m.nick()
+    | let who: irc.Nick =>
+      if not settled.same(who, settled.me()) then
+        _depart(who, settled)
+      end
+    end
+
+  fun ref _kicked(m: irc.Message val, settled: irc.Registration val) =>
+    """
+    Somebody was removed by an operator. The person removed is the
+    parameter, not the sender.
+    """
+    let name =
+      try
+        m.params()(1)?
+      else
+        return
+      end
+    match irc.Nicks(name)
+    | let who: irc.Nick =>
+      if not settled.same(who, settled.me()) then
+        _depart(who, settled)
+      end
+    end
+
+  fun ref _renamed(m: irc.Message val, settled: irc.Registration val) =>
+    """
+    Somebody changed nickname.
+
+    Rendered as a leave and a join rather than as a rename, because a
+    ghost's Matrix id is derived from the nickname: the new name is a
+    different user id, and there is nothing to carry across. A client
+    shows the two events, which is what an IRC client shows too.
+    """
+    match (m.nick(), irc.Nicks(m.trailing()))
+    | (let before: irc.Nick, let after: irc.Nick) =>
+      if not settled.same(before, settled.me()) then
+        _depart(before, settled)
+        _admit(after, settled)
+      end
+    end
+
+  fun ref _admit(who: irc.Nick, settled: irc.Registration val) =>
+    match _room
+    | let room: Room tag =>
+      room.admit_ghost(_ghost(who, settled), ValidUtf8(who.display()))
+    else
+      if _early.size() < MaxEarlyMembers() then
+        _early.push((_ghost(who, settled), ValidUtf8(who.display()), true))
+      end
+    end
+
+  fun ref _depart(who: irc.Nick, settled: irc.Registration val) =>
+    match _room
+    | let room: Room tag =>
+      room.part_ghost(_ghost(who, settled))
+    else
+      // Recorded in order rather than cancelling the join it follows: a
+      // person who joined and left before the room existed was there, and
+      // replaying both is what leaves the room agreeing with the channel.
+      if _early.size() < MaxEarlyMembers() then
+        _early.push((_ghost(who, settled), "", false))
+      end
+    end
+
+  fun _ghost(who: irc.Nick, settled: irc.Registration val): String =>
+    """
+    The Matrix user id for a far-side participant.
+
+    Folded under the network's own rules first, because IRC nicknames are
+    case-insensitive and two spellings are one person.
+    """
+    _homeserver.user_id(
+      _mapping.matrix_localpart(
+        _network.name, GhostLocalpart(settled.key(who))))
+
+  fun ref _heard(
+    irc': irc.IRCSend tag,
+    m: irc.Message val,
+    settled: irc.Registration val)
+  =>
+    """
+    Something said on the channel, or asked of this connection directly.
 
     A message from this connection's own owner is skipped: they said it on
     Matrix, and it reached IRC because this connection sent it. Everyone
     else's words arrive as their ghost.
     """
-    match m.ctcp()
-    | let _: irc.Ctcp val => return
+    let who =
+      match m.nick()
+      | let n: irc.Nick => n
+      else
+        return
+      end
+
+    // Only this connection's own nickname. Another marilwyd user is a
+    // participant on the channel like anyone else, and their words reach
+    // this room as their ghost — which is what a person on IRC sees of
+    // somebody using a different client.
+    if settled.same(who, settled.me()) then
+      return
     end
 
     let target =
@@ -217,47 +413,85 @@ actor UserLink is (irc.IRCNotify & RoomMember)
       else
         return
       end
-    if not settled.same_text(target, _channel) then
+    let addressed = settled.same_text(target, _channel)
+
+    match m.ctcp()
+    | let embedded: irc.Ctcp val =>
+      // A CTCP arriving as a NOTICE is somebody's *answer*, and answering
+      // an answer is how two clients flood each other off a server.
+      if m.command() != "PRIVMSG" then
+        return
+      end
+      if _IsCtcp(embedded, "ACTION") then
+        // `/me`. An emote and a message differ only in how a client renders
+        // them, so this is the same relay with a different msgtype — and
+        // without it a third of what is said on a channel is invisible.
+        if addressed then
+          _relayed(who, settled, "m.emote", embedded.argument())
+        end
+      else
+        _answered(irc', who, embedded)
+      end
       return
     end
 
-    let room =
-      match _room
-      | let r: Room tag => r
-      else
-        return
-      end
+    if not addressed then
+      return
+    end
 
-    match m.nick()
-    | let who: irc.Nick =>
-      // Only this connection's own nickname. Another marilwyd user is a
-      // participant on the channel like anyone else, and their words
-      // reach this room as their ghost — which is what a person on IRC
-      // sees of somebody using a different client.
-      //
-      // An earlier version skipped every nickname the mapping could have
-      // produced. That belonged to a design where one room had several
-      // connections and each heard the others; with a room per person
-      // there is no such duplication, and the wider filter silently
-      // dropped every message from another Matrix user.
-      if settled.same(who, settled.me()) then
-        return
-      end
+    // A `NOTICE` stays a notice. The two are how a person on IRC tells
+    // automated traffic from someone talking, and the distinction is the
+    // same one Matrix draws — carrying it across is free.
+    let kind =
+      if m.command() == "NOTICE" then "m.notice" else "m.text" end
+    _relayed(who, settled, kind, m.trailing())
 
-      let ghost: String =
-        _homeserver.user_id(
-          _mapping.matrix_localpart(
-            _network.name, GhostLocalpart(settled.key(who))))
-      let said = ValidUtf8(m.trailing().clone())
-      let shown = ValidUtf8(who.display())
-      room
-        .> admit_ghost(ghost, shown)
-        .> send(
-          ghost,
-          "m.room.message",
-          "{\"msgtype\":\"m.text\",\"body\":"
-            + JsonPrinter.print(said) + "}",
-          _IgnoreRelay)
+  fun ref _relayed(
+    who: irc.Nick,
+    settled: irc.Registration val,
+    kind: String,
+    said: String)
+  =>
+    """
+    Put one person's words into the room under their ghost.
+
+    Admitted on the way past as well as at join, because a channel is not
+    only entered at join: a netsplit heals, a name list can be missed, and
+    somebody speaking is proof they are there whatever the membership says.
+    """
+    _admit(who, settled)
+    match _room
+    | let room: Room tag =>
+      room.send(
+        _ghost(who, settled),
+        "m.room.message",
+        "{\"msgtype\":\"" + kind + "\",\"body\":"
+          + JsonPrinter.print(ValidUtf8(said)) + "}",
+        _IgnoreRelay)
+    end
+
+  fun _answered(
+    irc': irc.IRCSend tag,
+    who: irc.Nick,
+    asked: irc.Ctcp val)
+  =>
+    """
+    Answer a CTCP request aimed at this connection.
+
+    `PING` alone. It is what an IRC client sends to measure the round trip
+    to somebody, and a connection that never answers reads as one that is
+    not there. The argument is echoed back untouched because it is the
+    asker's own timestamp — its meaning is theirs, not this server's.
+
+    Anything else is ignored rather than refused. A client that hears
+    nothing tries something else; one told a request failed shows the
+    person an error for a question they did not ask.
+    """
+    if not _IsCtcp(asked, "PING") then
+      return
+    end
+    match irc.Wire.ctcp_reply(who, "PING", asked.argument())
+    | let line: irc.Line val => irc'.send(line)
     end
 
   be irc_session(irc': irc.IRCSend tag, ended: irc.SessionEnded val) =>
@@ -394,3 +628,33 @@ actor _IgnoreRelay is EventReceiver
   """
   be event_sent(id: EventId) => None
   be event_refused(why: (NotInRoom | NoEventId)) => None
+
+primitive _IsCtcp
+  """
+  Is this the CTCP command named?
+
+  Case-insensitively, because the protocol does not say which case a client
+  sends and they do not agree: comparing exactly answers `/me` for one
+  client and silence for another.
+  """
+  fun apply(embedded: irc.Ctcp val, command: String): Bool =>
+    let sent = embedded.command()
+    if sent.size() != command.size() then
+      return false
+    end
+    var at: USize = 0
+    while at < sent.size() do
+      try
+        if _Upper(sent(at)?) != _Upper(command(at)?) then
+          return false
+        end
+      else
+        return false
+      end
+      at = at + 1
+    end
+    true
+
+primitive _Upper
+  fun apply(byte: U8): U8 =>
+    if (byte >= 'a') and (byte <= 'z') then byte - 32 else byte end
