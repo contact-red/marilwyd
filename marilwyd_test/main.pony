@@ -1,3 +1,4 @@
+use "pony_check"
 use "pony_test"
 use "time"
 use "files"
@@ -169,6 +170,15 @@ actor Main is TestList
     test(_TestAWokenSyncCarriesNoState)
     test(_TestAccountDataReachesADevice)
     test(_TestAccountDataIsNotResent)
+    test(Property1UnitTest[String](_TestSplitNeverExceedsTheBudget))
+    test(Property1UnitTest[String](_TestSplitLosesNothing))
+    test(Property1UnitTest[String](_TestSplitNeverAnswersEmptyPieces))
+    test(_TestNewlinesBecomeLines)
+    test(_TestShortTextIsOneLine)
+    test(_TestABreakPrefersASentence)
+    test(_TestABreakFallsBackToASpace)
+    test(_TestABreakCutsWhenItMust)
+    test(_TestABlindCutKeepsCharactersWhole)
     test(_TestNothingEphemeralRendersEmpty)
     test(_TestReceiptsGroupByEvent)
     test(_TestTypingRendersWhoIsTyping)
