@@ -13,13 +13,13 @@ class val RoomSummary
   No topic and no avatar: marilwyd stores neither, and a field that is
   always absent is better absent than always empty.
   """
-  let id: RoomId
+  let id: String
   let name: (String | None)
   let alias: (String | None)
   let members: USize
 
   new val create(
-    id': RoomId,
+    id': String,
     name': (String | None),
     alias': (String | None),
     members': USize)
@@ -32,9 +32,8 @@ class val RoomSummary
   fun val render(): String =>
     recover val
       let out = String(256)
-      let id': String = id.string()
       out.append("{\"room_id\":")
-      out.append(JsonPrinter.print(id'))
+      out.append(JsonPrinter.print(id))
       match name
       | let n: String =>
         out.append(",\"name\":")

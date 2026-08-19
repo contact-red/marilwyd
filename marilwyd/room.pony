@@ -17,12 +17,30 @@ actor Room
   would put the memory back that the per-device queues exist to bound.
   """
   let _state: RoomState
-  embed _members: Map[String, User tag] = _members.create()
+  // The channel this room is, when it is bridged. A room holds it because
+  // joining one has to open a connection before it can answer, and the
+  // handler that answers has no other way to learn there is one.
+  var _bridge: (BridgedChannel | None) = None
+  var _network: (BridgedNetwork | None) = None
+  // `RoomMember`, not `User`: a bridged user's own IRC connection is a
+  // member of the room the same way their account is, and the room does
+  // not distinguish them.
+  embed _members: Map[String, RoomMember tag] = _members.create()
+  // A member's own connection outward, when they have one. Keyed by the
+  // member it belongs to rather than held as a member, because it is not
+  // another participant — it is the same person, reachable from the other
+  // side.
+  embed _carrying: Map[String, RoomMember tag] = _carrying.create()
   var _position: USize = 0
   // Read positions and who is typing. Not in `RoomState`, which is what a
   // room *is* — these are what it is doing at one moment, they are never
   // events in its timeline, and nothing about them is kept when the
   // process ends.
+  // Only Matrix accounts, not every member. Ephemeral state is Matrix's
+  // own bookkeeping — an IRC connection has no reading for a read receipt
+  // and no way to show one — so a bridged member is a member for events
+  // and absent from this.
+  embed _watching: Map[String, User tag] = _watching.create()
   embed _receipts: Map[String, Receipt] = _receipts.create()
   embed _typing: Map[String, Bool] = _typing.create()
 
@@ -31,9 +49,10 @@ actor Room
 
   be created_by(
     user_id: String,
-    user: User tag,
+    user: RoomMember tag,
     wanted: CreateRoomRequest,
-    receiver: RoomCreationReceiver tag)
+    receiver: RoomCreationReceiver tag,
+    watching: (User tag | None) = None)
   =>
     """
     Write the events that make a room a room, admit its creator, and only
@@ -60,6 +79,12 @@ actor Room
     end
 
     _admit(user_id, user)
+    // The creator hears this room's ephemeral state for the same reason a
+    // joiner does. Without it the one person certain to be in a room was
+    // the one person never told who was typing in it.
+    match watching
+    | let account: User tag => _watching(user_id.clone()) = account
+    end
     receiver.room_created(_state.id)
 
   fun ref _write_room(user_id: String, wanted: CreateRoomRequest)
@@ -113,6 +138,7 @@ actor Room
     creator: String,
     wanted: CreateRoomRequest,
     channel: BridgedChannel,
+    network: BridgedNetwork,
     receiver: DeclaredRoomReceiver tag)
   =>
     """
@@ -128,9 +154,16 @@ actor Room
       receiver.declaration_refused(channel.channel)
       return
     end
-    receiver.room_declared(channel, _state.id, this)
+    _bridge = channel
+    _network = network
+    receiver.channel_declared(channel, network)
 
-  be join(user_id: String, user: User tag, receiver: MembershipReceiver tag) =>
+  be join(
+    user_id: String,
+    user: RoomMember tag,
+    receiver: MembershipReceiver tag,
+    watching: (User tag | None) = None)
+  =>
     """
     Admit a member. Joining a room you are already in changes nothing and
     succeeds, as the specification requires — appending a second identical
@@ -139,6 +172,13 @@ actor Room
     if not _state.is_member(user_id) then
       _admit(user_id, user)
     end
+    // Only a Matrix account hears a room's ephemeral state — a bridged
+    // user's IRC connection is a member and has no reading for a receipt.
+    // Taken here rather than by a second call, so a caller cannot join
+    // somebody and forget to.
+    match watching
+    | let account: User tag => _watching(user_id.clone()) = account
+    end
     receiver.membership_changed(_state.id)
 
   be leave(user_id: String, receiver: MembershipReceiver tag) =>
@@ -146,8 +186,15 @@ actor Room
       _append(user_id, "m.room.member", "{\"membership\":\"leave\"}", user_id)
       _state.leave(user_id)
       try
-        (_, let user: User tag) = _members.remove(user_id)?
-        user.departed(_state.id.string())
+        (_, let member: RoomMember tag) = _members.remove(user_id)?
+        member.departed(_state.id.string())
+      end
+      try
+        (_, _) = _watching.remove(user_id)?
+      end
+      try
+        (_, let link: RoomMember tag) = _carrying.remove(user_id)?
+        link.departed(_state.id.string())
       end
     end
     receiver.membership_changed(_state.id)
@@ -217,7 +264,7 @@ actor Room
     """
     receiver.room_summarised(
       RoomSummary(
-        _state.id,
+        _state.id.string(),
         _NameIn(_state.content_of("m.room.name")),
         _NameIn(_state.content_of("m.room.canonical_alias"), "alias"),
         _state.size()))
@@ -287,8 +334,46 @@ actor Room
 
     let current = Ephemeral(consume receipts, consume active)
     let id: String = _state.id.string()
-    for user in _members.values() do
+    for user in _watching.values() do
       user.ephemeral(id, current)
+    end
+
+  be carry(user_id: String, link: RoomMember tag) =>
+    """
+    Take one member's outward connection.
+
+    Not a member itself: it is the same person as the account that joined,
+    seen from the other side, so it appears in no membership and in no
+    listing. It receives what the room fans out and nothing else — which
+    is what makes a Matrix user's words reach IRC without inventing a
+    second participant to carry them.
+    """
+    if _state.is_member(user_id) then
+      _carrying(user_id.clone()) = link
+    end
+
+  be identify(receiver: RoomIdReceiver tag) =>
+    """
+    Say which room this is.
+
+    Needed because a bridged channel's alias resolves to a room actor
+    before anyone knows its id — the directory hands back the room, and
+    the id is the room's to give.
+    """
+    receiver.room_identified(_state.id)
+
+  be bridged(receiver: BridgeReceiver tag) =>
+    """
+    Say which channel this room is, if it is one.
+
+    Asked before a join, because a bridged room's membership means a live
+    IRC connection and the handler cannot know to open one otherwise.
+    """
+    match (_bridge, _network)
+    | (let channel: BridgedChannel, let network: BridgedNetwork) =>
+      receiver.room_is_bridged(channel, network)
+    else
+      receiver.room_is_local()
     end
 
   be members(user_id: String, receiver: StateReceiver tag) =>
@@ -314,7 +399,7 @@ actor Room
       receiver.state_refused(NotInRoom)
     end
 
-  fun ref _admit(user_id: String, user: User tag) =>
+  fun ref _admit(user_id: String, user: RoomMember tag) =>
     """
     Add a member, and tell them so.
 
@@ -368,6 +453,11 @@ actor Room
 
     for user in _members.values() do
       user.deliver(event)
+    end
+    // And outward. A member's own connection never receives what that
+    // member said — `UserLink` compares the sender — so nothing loops.
+    for link in _carrying.values() do
+      link.deliver(event)
     end
 
     id

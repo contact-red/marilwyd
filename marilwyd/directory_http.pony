@@ -32,11 +32,14 @@ class val _ResolveAlias
     _ResolveAliasHandler(consume ctx, _sessions, _rooms, _homeserver)
 
 actor _ResolveAliasHandler is
-  (hobby.HandlerReceiver & UserReceiver & AliasReceiver)
+  (hobby.HandlerReceiver & UserReceiver & AliasReceiver
+    & BridgedRoomReceiver)
   embed _handler: hobby.RequestHandler
   let _rooms: RoomDirectory tag
+  let _homeserver: Homeserver
   let _server_name: String
   let _params: Map[String, String] val
+  var _session: (Session | None) = None
 
   new create(
     ctx: hobby.HandlerContext iso,
@@ -46,6 +49,7 @@ actor _ResolveAliasHandler is
   =>
     let supplied = _BearerToken(ctx.request)
     _rooms = rooms
+    _homeserver = homeserver
     _server_name = homeserver.server_name
     _params = ctx.params
     _handler = hobby.RequestHandler(consume ctx)
@@ -57,6 +61,7 @@ actor _ResolveAliasHandler is
     end
 
   be token_resolved(session: Session) =>
+    _session = session
     match \exhaustive\ _PathParam(_params, "roomAlias")
     | let text: String =>
       // Parsed before it is looked up, so text that could never be an
@@ -65,8 +70,38 @@ actor _ResolveAliasHandler is
       // wrong with it.
       match \exhaustive\ RoomAliases(text, _server_name)
       | let alias: RoomAlias =>
-        let key: String = alias.string()
-        _rooms.resolve_alias(key, this)
+        // A bridged channel's alias answers with the asking person's own
+        // room, minting one if they have none — so resolving an alias and
+        // entering it are the same act, and two people asking the same
+        // question get two different answers.
+        match _session
+        | let s: Session =>
+          _rooms.for_user(
+            alias.string(), s.user_id, _homeserver.user_id("bridge"), this)
+        end
+      | let why: InvalidAlias =>
+        _respond(
+          stallion.StatusBadRequest,
+          MatrixError("M_INVALID_PARAM", why.string()))
+      end
+    | None =>
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError("M_INVALID_PARAM", "That is not a room alias"))
+    end
+
+  be bridged_room(room: Room tag, network: BridgedNetwork) =>
+    room.identify(this)
+
+  be room_identified(id: RoomId) =>
+    _respond(stallion.StatusOK, AliasResolved(id.string(), _server_name))
+
+  be no_such_channel() =>
+    // Not a channel, so it may be an ordinary room's alias.
+    match \exhaustive\ _PathParam(_params, "roomAlias")
+    | let text: String =>
+      match \exhaustive\ RoomAliases(text, _server_name)
+      | let alias: RoomAlias => _rooms.resolve_alias(alias.string(), this)
       | let why: InvalidAlias =>
         _respond(
           stallion.StatusBadRequest,
@@ -126,7 +161,7 @@ class val _PublicRooms
 
 actor _PublicRoomsHandler is
   (hobby.HandlerReceiver & UserReceiver & PublishedRoomsReceiver
-    & RoomSummaryReceiver)
+    & RoomSummaryReceiver & ChannelListReceiver)
   embed _handler: hobby.RequestHandler
   let _rooms: RoomDirectory tag
   embed _summaries: Array[RoomSummary] = _summaries.create()
@@ -148,6 +183,28 @@ actor _PublicRoomsHandler is
     end
 
   be token_resolved(session: Session) =>
+    _rooms.channels(this)
+
+  be channels_listed(channels: Array[BridgedChannel] val) =>
+    """
+    Every declared channel goes in the listing, whether or not anybody has
+    entered one.
+
+    A channel is advertised by its alias rather than by a room id, because
+    there is no one room to name — each person who enters gets their own.
+    A client joins by the alias, which is what the alias is for.
+    """
+    for channel in channels.values() do
+      _summaries.push(
+        RoomSummary(
+          // The alias in place of an id. A client shows what it can join,
+          // and joining a bridged channel means naming its alias — the id
+          // it ends up in is the server's answer, not the client's ask.
+          channel.alias.string(),
+          channel.room_name,
+          channel.alias.string(),
+          0))
+    end
     _rooms.published(this)
 
   be rooms_published(rooms: Array[Room tag] val) =>

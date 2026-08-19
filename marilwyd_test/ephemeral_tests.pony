@@ -83,7 +83,10 @@ actor \nodoc\ _ReadTwice is (SyncReceiver & MembershipReceiver)
     _user = User("@alice:example.test")
     _user.attach("laptop", _device)
     _room = Room(id)
-    _room.join("@alice:example.test", _user, this)
+    // The account is passed twice on purpose: as the member the room fans
+    // events to, and as the account that hears its ephemeral state. A
+    // bridged user's IRC connection is only ever the first.
+    _room.join("@alice:example.test", _user, this, _user)
 
   be membership_changed(room: RoomId) =>
     _room
@@ -459,7 +462,8 @@ actor \nodoc\ _ManyTypists is
       "@alice:example.test",
       _user,
       CreateRoomRequest(None, None, false),
-      _IgnoreCreation)
+      _IgnoreCreation,
+      _user)
 
     var i: USize = 0
     while i < (MaxTypists() + 10) do

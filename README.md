@@ -36,15 +36,20 @@ endpoint — answering `keys/query` with empty key maps — produced 10,325
 requests in the same span.
 
 A bridge configuration may be named with `--bridges`. It declares which
-IRC channels marilwyd carries and what Matrix room each one is; the rooms
-are created before the listener opens, so a client connecting the instant
-marilwyd is up finds them there. marilwyd then connects, joins each
-channel, and relays what is said there into the room.
+IRC channels marilwyd carries, and each appears in the room directory under
+an alias.
 
-**Inbound only.** What is said on IRC reaches Matrix; nothing goes the
-other way yet. That half has no injection surface — marilwyd sends the
-network nothing a person wrote — and reading a channel from a phone is most
-of what a bridge is for.
+**A channel is not a room.** Every Matrix user who enters one gets their
+own room and their own IRC connection, registered under their own
+nickname — a bouncer rather than a bot. Joining opens the connection,
+leaving closes it, and idling between is the ordinary way to be on a
+channel. A network that refuses is a Matrix room the client does not
+enter: membership means connected on both sides.
+
+That is also why the rooms are per person. A room is what one IRC session
+heard, and two people who enter the same channel see each other through
+IRC — as their far-side nicknames, over the round trip — which is what two
+people on IRC using different clients see of one another.
 
 An IRC participant becomes a Matrix user the first time they speak, with
 their nickname as a display name. Two spellings of one nickname are one

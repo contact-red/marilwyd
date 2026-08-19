@@ -213,10 +213,10 @@ actor Main is TestList
     test(_TestBridgesAreRead)
     test(_TestAMappingSubstitutes)
     test(_TestAGhostIdIsAddressable)
-    test(_TestADeclaredRoomIdIsChecked)
     test(_TestANetworkNameMustBeAddressable)
-    test(_TestADeclaredRoomIsPublishedAndAliased)
-    test(_TestADeclaredRoomKeepsItsDeclaredId)
+    test(_TestADeclaredChannelIsAdvertised)
+    test(_TestEachUserGetsTheirOwnRoom)
+    test(_TestTheSamePersonKeepsTheirRoom)
     test(_TestAnAliasNamesItsServer)
     test(_TestAnAliasBeginsWithHash)
     test(_TestAnAliasIsBuiltAndReadBack)
@@ -349,7 +349,12 @@ primitive _Serve
       end
 
     match \exhaustive\ Routes(
-      config, SessionRegistry(epoch), RoomDirectory(config.homeserver), epoch)
+      config,
+      SessionRegistry(epoch),
+      RoomDirectory(config.homeserver),
+      LinkDirectory(
+        h.env, config.homeserver, NameMapping("{localpart}", "{nick}")),
+      epoch)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =
@@ -446,7 +451,12 @@ primitive _ServeAuthed
       end
 
     match \exhaustive\ Routes(
-      config, SessionRegistry(epoch), RoomDirectory(config.homeserver), epoch)
+      config,
+      SessionRegistry(epoch),
+      RoomDirectory(config.homeserver),
+      LinkDirectory(
+        h.env, config.homeserver, NameMapping("{localpart}", "{nick}")),
+      epoch)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =
@@ -534,7 +544,12 @@ primitive _ServeAuthedChain
       end
 
     match \exhaustive\ Routes(
-      config, SessionRegistry(epoch), RoomDirectory(config.homeserver), epoch)
+      config,
+      SessionRegistry(epoch),
+      RoomDirectory(config.homeserver),
+      LinkDirectory(
+        h.env, config.homeserver, NameMapping("{localpart}", "{nick}")),
+      epoch)
     | let built: hobby.BuiltApplication =>
       let connect_auth = lori.TCPConnectAuth(h.env.root)
       let notify =

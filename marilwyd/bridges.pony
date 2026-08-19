@@ -2,30 +2,23 @@ class val BridgedChannel
   """
   One IRC channel and the Matrix room it is.
 
-  `alias` is what makes the pairing survive a restart. marilwyd stores
-  nothing, so the room's id is minted afresh every start — but the alias is
-  declared, so a person who bookmarked `#norrath:server` still finds the
-  room, and the directory still lists it under the same name.
-
-  `room_id` is the way to keep the id itself. Absent on a first run:
-  marilwyd mints one and prints it, and an operator who pastes it back into
-  the file gets a room whose id is stable too.
+  `alias` is the whole of how a channel is addressed, and there is no room
+  id to declare beside it: every person who enters a channel gets their own
+  room, so there is no single id an operator could pin. The alias is what
+  survives a restart, and it is what a person types.
   """
   let channel: String
   let room_name: String
   let alias: RoomAlias
-  let room_id: (RoomId | None)
 
   new val create(
     channel': String,
     room_name': String,
-    alias': RoomAlias,
-    room_id': (RoomId | None))
+    alias': RoomAlias)
   =>
     channel = channel'
     room_name = room_name'
     alias = alias'
-    room_id = room_id'
 
 class val BridgedNetwork
   """

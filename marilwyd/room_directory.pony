@@ -19,15 +19,27 @@ actor RoomDirectory
   // published.
   embed _aliases: Map[String, String] = _aliases.create()
   embed _published: Map[String, Room tag] = _published.create()
+  // A bridged channel is not a room. Every Matrix user who enters one gets
+  // their own, because a room is what one IRC session heard — and a
+  // session's view of a channel is inherently its own. Sharing one room
+  // between several sessions meant every message crossed the boundary once
+  // per member and everyone saw it that many times.
+  //
+  // Keyed by alias: what the directory advertises and what a person types.
+  embed _channels: Map[String, (BridgedChannel, BridgedNetwork)] =
+    _channels.create()
+  // The room one user has for one channel, keyed by alias and user id.
+  embed _theirs: Map[String, Room tag] = _theirs.create()
 
   new create(homeserver: Homeserver) =>
     _homeserver = homeserver
 
   be create_room(
     user_id: String,
-    user: User tag,
+    user: RoomMember tag,
     wanted: CreateRoomRequest,
-    receiver: RoomCreationReceiver tag)
+    receiver: RoomCreationReceiver tag,
+    watching: (User tag | None) = None)
   =>
     match wanted.alias
     | let alias: RoomAlias =>
@@ -57,7 +69,7 @@ actor RoomDirectory
       end
       // The room answers, not this actor: only the room knows whether the
       // events that make it a room were written.
-      room.created_by(user_id.clone(), user, wanted, receiver)
+      room.created_by(user_id.clone(), user, wanted, receiver, watching)
     else
       // Fail closed. A room id is the only thing gating access to a room,
       // so there is no weaker one worth handing out.
@@ -66,54 +78,29 @@ actor RoomDirectory
 
   be declare(
     channel: BridgedChannel,
+    network: BridgedNetwork,
     creator: String,
     receiver: DeclaredRoomReceiver tag)
   =>
     """
-    Make a room an operator declared, before any client connects.
+    Record a channel an operator declared, so its alias can be entered.
 
-    Nobody is admitted. A declared room starts empty and is joined the way
-    any published room is — through the directory, by its alias — so it
-    needs no `User` actor to exist at a point in startup where none do.
+    No room is made. A bridged channel is not a room — it is something a
+    person can get a room for, and each gets their own, because a room is
+    what one IRC session heard.
 
-    Its id is the one in the file when there is one, and a fresh one
-    otherwise. Reusing a declared id is what makes a bridged room the same
-    room across a restart; minting one is what lets an operator run before
-    knowing what to declare.
+    Nothing is connected either. A channel with nobody in it has no
+    connection, exactly as an IRC user who is not connected hears nothing,
+    and the first Matrix user to enter is what opens one.
     """
-    let id =
-      match channel.room_id
-      | let declared: RoomId => declared
-      else
-        match MakeRoomId(_homeserver.server_name)
-        | let minted: RoomId => minted
-        else
-          receiver.declaration_refused(channel.channel)
-          return
-        end
-      end
-
-    let key: String = id.string()
-    if _rooms.contains(key) then
-      receiver.declaration_refused(channel.channel)
-      return
-    end
-
     let alias: String = channel.alias.string()
-    if _aliases.contains(alias) then
+    if _channels.contains(alias) then
       receiver.declaration_refused(channel.channel)
       return
     end
 
-    let room = Room(id)
-    _rooms(key) = room
-    _aliases(alias) = key
-    _published(key) = room
-    room.declared(
-      creator,
-      CreateRoomRequest(channel.room_name, channel.alias, true),
-      channel,
-      receiver)
+    _channels(alias) = (channel, network)
+    receiver.channel_declared(channel, network)
 
   be with_room(room_id: String, receiver: RoomLookupReceiver tag) =>
     """
@@ -133,12 +120,83 @@ actor RoomDirectory
   be resolve_alias(alias: String, receiver: AliasReceiver tag) =>
     """
     Answer which room an alias names.
+
+    A plain alias names one room and always the same one. A bridged
+    channel's alias names a different room for every person who asks,
+    which is why this takes no user: it answers only for the first kind,
+    and `for_user` answers the second.
     """
     try
       receiver.alias_resolved(_aliases(alias)?)
     else
       receiver.alias_unknown()
     end
+
+  be for_user(
+    alias: String,
+    user_id: String,
+    creator: String,
+    receiver: BridgedRoomReceiver tag)
+  =>
+    """
+    Hand back this person's own room for a bridged channel, making it if
+    they have none.
+
+    One room per person per channel. Two people who enter the same channel
+    hold two rooms and see each other through IRC — as their far-side
+    nicknames, over the round trip — which is what two people on IRC from
+    different clients see of one another anyway.
+    """
+    (let channel: BridgedChannel, let network: BridgedNetwork) =
+      try
+        _channels(alias)?
+      else
+        receiver.no_such_channel()
+        return
+      end
+
+    // The room they already hold, if they hold one. Looked up on its own
+    // rather than inside the same `try` as the channel: a single `try`
+    // around both meant any failure fell through to minting, and a second
+    // room for the same person is a room their connection is not in.
+    let key: String = alias + " " + user_id
+    try
+      receiver.bridged_room(_theirs(key)?, network)
+      return
+    end
+
+    let id =
+      match MakeRoomId(_homeserver.server_name)
+      | let minted: RoomId => minted
+      else
+        receiver.no_such_channel()
+        return
+      end
+
+    let room = Room(id)
+    let room_key: String = id.string()
+    _rooms(room_key) = room
+    _theirs(key) = room
+    // Not published: a room only its owner may enter has no place in a
+    // directory everyone reads. The channel is what the directory
+    // advertises, and it is advertised by its alias rather than by a room.
+    room.declared(
+      creator,
+      CreateRoomRequest(channel.room_name, channel.alias, false),
+      channel,
+      network,
+      _IgnoreDeclaration)
+    receiver.bridged_room(room, network)
+
+  be channels(receiver: ChannelListReceiver tag) =>
+    """
+    Every declared channel, for the directory to advertise.
+    """
+    let found = recover iso Array[BridgedChannel] end
+    for (channel, _) in _channels.values() do
+      found.push(channel)
+    end
+    receiver.channels_listed(consume found)
 
   be published(receiver: PublishedRoomsReceiver tag) =>
     """

@@ -11,7 +11,11 @@ primitive _Connect
   that the choice decides whether a password is readable in transit — so
   marilwyd makes it from the configuration and nowhere else.
   """
-  fun apply(env: Env, network: BridgedNetwork, notify: irc.IRCNotify tag)
+  fun apply(
+    env: Env,
+    network: BridgedNetwork,
+    notify: irc.IRCNotify tag,
+    nicks': (Array[String] val | None) = None)
     : (irc.IRC | StartupError)
   =>
     let tls: irc.TLS =
@@ -46,7 +50,11 @@ primitive _Connect
         network.host,
         network.service,
         tls,
-        network.nicks,
+        match nicks'
+        | let wanted: Array[String] val => wanted
+        else
+          network.nicks
+        end,
         "marilwyd",
         "marilwyd bridge")
       | let c: irc.IRCConfig val => c

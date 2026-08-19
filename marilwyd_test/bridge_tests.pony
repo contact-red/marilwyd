@@ -58,48 +58,6 @@ class \nodoc\ iso _TestAGhostIdIsAddressable is UnitTest
     | let why: String => h.fail("a mapped nick is not addressable: " + why)
     end
 
-class \nodoc\ iso _TestADeclaredRoomIdIsChecked is UnitTest
-  """
-  Only the shape marilwyd itself mints. An id this server could not have
-  produced names a room that cannot exist here.
-  """
-  fun name(): String => "bridges/a declared room id must be one of ours"
-
-  fun apply(h: TestHelper) =>
-    let good = "!0123456789abcdef0123456789abcdef:example.test"
-    match RoomIds(good, "example.test")
-    | let id: RoomId => h.assert_eq[String](good, id.string())
-    else
-      h.fail("a well-formed id was refused")
-    end
-
-    // Too short, not hex, another server, and no bang.
-    for bad in
-      [ "!0123:example.test"
-        "!0123456789abcdefg123456789abcdef:example.test"
-        "!0123456789abcdef0123456789abcdef:elsewhere.test"
-        "?0123456789abcdef0123456789abcdef:example.test" ].values()
-    do
-      match RoomIds(bad, "example.test")
-      | let id: RoomId => h.fail("accepted " + bad)
-      end
-    end
-
-primitive \nodoc\ _ReadFixture
-  fun apply(h: TestHelper): (Bridges | StartupError) =>
-    let auth = FileAuth(h.env.root)
-    let caps =
-      recover val
-        FileCaps .> set(FileLookup) .> set(FileRead) .> set(FileStat)
-      end
-    try
-      ReadBridges(
-        FilePath(auth, _BridgesFixture.path(), caps).canonical()?,
-        "example.test")
-    else
-      StartupError("fixture", "the bridges fixture is missing")
-    end
-
 class \nodoc\ iso _TestANetworkNameMustBeAddressable is UnitTest
   """
   A network's name goes into every ghost user id it produces, so a name
@@ -142,13 +100,13 @@ primitive \nodoc\ _ReadBridgesText
       StartupError("fixture", "the case file could not be written")
     end
 
-class \nodoc\ iso _TestADeclaredRoomIsPublishedAndAliased is UnitTest
+class \nodoc\ iso _TestADeclaredChannelIsAdvertised is UnitTest
   """
-  What declaring a room is for: it exists before any client connects, it is
-  listed in the directory, and it answers to the alias in the file. A
-  person joins it by clicking Explore, never by being handed an id.
+  What declaring a channel does: it can be entered by its alias, and it
+  appears in the directory — but it is not a room and no room exists for
+  it until somebody enters.
   """
-  fun name(): String => "bridges/a declared room is published and aliased"
+  fun name(): String => "bridges/a declared channel is advertised"
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
@@ -156,99 +114,195 @@ class \nodoc\ iso _TestADeclaredRoomIsPublishedAndAliased is UnitTest
       MakeHomeserver.http("example.test"))
     | (let alias: RoomAlias, let hs: Homeserver) =>
       _DeclareThenLook(
-        h, BridgedChannel("#norrath", "norrath", alias, None), hs)
+        h, BridgedChannel("#norrath", "norrath", alias), hs)
     else
       h.fail("could not build the fixture")
     end
 
 actor \nodoc\ _DeclareThenLook is
-  (DeclaredRoomReceiver & AliasReceiver & PublishedRoomsReceiver
-    & RoomSummaryReceiver)
+  (DeclaredRoomReceiver & ChannelListReceiver)
   """
-  Declares a room, then asks the directory the two questions a person's
-  client asks: what is listed, and what does this name resolve to.
+  Declares a channel and then asks the directory what it advertises.
   """
   let _h: TestHelper
   let _rooms: RoomDirectory
-  var _resolved: Bool = false
 
   new create(h: TestHelper, channel: BridgedChannel, hs: Homeserver) =>
     _h = h
     _rooms = RoomDirectory(hs)
-    _rooms.declare(channel, "@irc_testnet_marilwyd:example.test", this)
+    _rooms.declare(
+      channel, _TestNetwork(), "@bridge:example.test", this)
+
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
+    _rooms.channels(this)
 
   be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    // Only once the room says it exists, so nothing here races its
-    // creation.
-    _rooms.resolve_alias(channel.alias.string(), this)
+    _h.fail("declaring a channel made a room")
+    _h.complete(false)
 
   be declaration_refused(channel: String) =>
     _h.fail("declaring " + channel + " was refused")
     _h.complete(false)
 
-  be alias_resolved(room_id: String) =>
-    _resolved = true
-    _h.assert_true(room_id.at("!", 0), room_id)
-    _rooms.published(this)
-
-  be alias_unknown() =>
-    _h.fail("a declared room's alias resolved to nothing")
-    _h.complete(false)
-
-  be rooms_published(rooms: Array[Room tag] val) =>
-    _h.assert_eq[USize](1, rooms.size(), "a declared room was not published")
-    for room in rooms.values() do
-      room.summarise(this)
+  be channels_listed(channels: Array[BridgedChannel] val) =>
+    _h.assert_eq[USize](1, channels.size())
+    try
+      _h.assert_eq[String]("#norrath", channels(0)?.channel)
+      _h.assert_eq[String](
+        "#norrath:example.test", channels(0)?.alias.string())
+    else
+      _h.fail("the channel list held nothing")
     end
-
-  be room_summarised(summary: RoomSummary) =>
-    _h.assert_true(_resolved, "the alias never resolved")
-    _h.assert_eq[String]("norrath", try summary.name as String else "" end)
-    _h.assert_eq[String](
-      "#norrath:example.test", try summary.alias as String else "" end)
-    // Declared, not joined: a room that starts empty is the point.
-    _h.assert_eq[USize](0, summary.members)
     _h.complete(true)
 
-class \nodoc\ iso _TestADeclaredRoomKeepsItsDeclaredId is UnitTest
+class \nodoc\ iso _TestEachUserGetsTheirOwnRoom is UnitTest
   """
-  The whole reason `room_id` is in the file: with one, a bridged room is
-  the same room after a restart, not merely a room with the same name.
+  The reason for all of this. Two people who enter one channel hold two
+  rooms, because a room is what one IRC session heard — and sharing one
+  between several sessions meant every message crossed the boundary once
+  per member and everybody saw it that many times.
   """
-  fun name(): String => "bridges/a declared room keeps the id it was given"
+  fun name(): String => "bridges/two people get two rooms for one channel"
 
   fun apply(h: TestHelper) =>
     h.long_test(10_000_000_000)
-    let wanted = "!0123456789abcdef0123456789abcdef:example.test"
     match (RoomAliases.make("norrath", "example.test"),
-      RoomIds(wanted, "example.test"),
       MakeHomeserver.http("example.test"))
-    | (let alias: RoomAlias, let id: RoomId, let hs: Homeserver) =>
-      _DeclareWithId(
-        h, BridgedChannel("#norrath", "norrath", alias, id), hs, wanted)
+    | (let alias: RoomAlias, let hs: Homeserver) =>
+      _TwoUsersOneChannel(
+        h, BridgedChannel("#norrath", "norrath", alias), hs)
     else
       h.fail("could not build the fixture")
     end
 
-actor \nodoc\ _DeclareWithId is DeclaredRoomReceiver
+actor \nodoc\ _TwoUsersOneChannel is
+  (DeclaredRoomReceiver & BridgedRoomReceiver & RoomIdReceiver)
   let _h: TestHelper
-  let _wanted: String
+  let _rooms: RoomDirectory
+  let _alias: String
+  var _first: (String | None) = None
 
-  new create(
-    h: TestHelper,
-    channel: BridgedChannel,
-    hs: Homeserver,
-    wanted: String)
-  =>
+  new create(h: TestHelper, channel: BridgedChannel, hs: Homeserver) =>
     _h = h
-    _wanted = wanted
-    RoomDirectory(hs).declare(
-      channel, "@irc_testnet_marilwyd:example.test", this)
+    _alias = channel.alias.string()
+    _rooms = RoomDirectory(hs)
+    _rooms.declare(channel, _TestNetwork(), "@bridge:example.test", this)
+
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
+    _rooms.for_user(
+      _alias, "@alice:example.test", "@bridge:example.test", this)
 
   be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    _h.assert_eq[String](_wanted, id.string())
-    _h.complete(true)
+    None
 
   be declaration_refused(channel: String) =>
-    _h.fail("declaring " + channel + " with a declared id was refused")
+    _h.fail("declaring was refused")
     _h.complete(false)
+
+  be bridged_room(room: Room tag, network: BridgedNetwork) =>
+    room.identify(this)
+
+  be no_such_channel() =>
+    _h.fail("the channel it just declared was not found")
+    _h.complete(false)
+
+  be room_identified(id: RoomId) =>
+    match _first
+    | let alice: String =>
+      _h.assert_ne[String](
+        alice, id.string(), "two people were given one room")
+      _h.complete(true)
+    else
+      _first = id.string()
+      _rooms.for_user(
+        _alias, "@bob:example.test", "@bridge:example.test", this)
+    end
+
+class \nodoc\ iso _TestTheSamePersonKeepsTheirRoom is UnitTest
+  """
+  Entering twice is the same room, not a second one — otherwise a client
+  reconnecting would accumulate rooms for one channel.
+  """
+  fun name(): String => "bridges/entering twice is the same room"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    match (RoomAliases.make("norrath", "example.test"),
+      MakeHomeserver.http("example.test"))
+    | (let alias: RoomAlias, let hs: Homeserver) =>
+      _OneUserTwice(
+        h, BridgedChannel("#norrath", "norrath", alias), hs)
+    else
+      h.fail("could not build the fixture")
+    end
+
+actor \nodoc\ _OneUserTwice is
+  (DeclaredRoomReceiver & BridgedRoomReceiver & RoomIdReceiver)
+  let _h: TestHelper
+  let _rooms: RoomDirectory
+  let _alias: String
+  var _first: (String | None) = None
+
+  new create(h: TestHelper, channel: BridgedChannel, hs: Homeserver) =>
+    _h = h
+    _alias = channel.alias.string()
+    _rooms = RoomDirectory(hs)
+    _rooms.declare(channel, _TestNetwork(), "@bridge:example.test", this)
+
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
+    _rooms.for_user(
+      _alias, "@alice:example.test", "@bridge:example.test", this)
+
+  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
+    None
+
+  be declaration_refused(channel: String) =>
+    _h.fail("declaring was refused")
+    _h.complete(false)
+
+  be bridged_room(room: Room tag, network: BridgedNetwork) =>
+    room.identify(this)
+
+  be no_such_channel() =>
+    _h.fail("the channel was not found")
+    _h.complete(false)
+
+  be room_identified(id: RoomId) =>
+    match _first
+    | let before: String =>
+      _h.assert_eq[String](
+        before, id.string(), "entering twice made two rooms")
+      _h.complete(true)
+    else
+      _first = id.string()
+      _rooms.for_user(
+        _alias, "@alice:example.test", "@bridge:example.test", this)
+    end
+
+primitive \nodoc\ _TestNetwork
+  """
+  A network for tests that declare a channel without connecting to one.
+  """
+  fun apply(): BridgedNetwork =>
+    BridgedNetwork(
+      "testnet",
+      "irc.example.test",
+      "6697",
+      true,
+      recover val ["marilwyd"] end,
+      recover val Array[BridgedChannel] end)
+
+primitive \nodoc\ _ReadFixture
+  fun apply(h: TestHelper): (Bridges | StartupError) =>
+    let auth = FileAuth(h.env.root)
+    let caps =
+      recover val
+        FileCaps .> set(FileLookup) .> set(FileRead) .> set(FileStat)
+      end
+    try
+      ReadBridges(
+        FilePath(auth, _BridgesFixture.path(), caps).canonical()?,
+        "example.test")
+    else
+      StartupError("fixture", "the bridges fixture is missing")
+    end

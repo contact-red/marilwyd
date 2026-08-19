@@ -38,12 +38,6 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
   Startup, and the only place marilwyd writes to stdout or stderr.
   """
   let _env: Env
-  embed _bridges: Array[IrcBridge tag] = _bridges.create()
-  // The connections are held here for the length of the process. Nothing
-  // else refers to one — a bridge is told about its rooms, not its socket
-  // — so dropping the reference leaves an actor that connects and is then
-  // collected, which is a bridge that silently never joins anything.
-  embed _links: Array[irc.IRC tag] = _links.create()
 
   new create(env: Env) =>
     _env = env
@@ -86,26 +80,23 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
       end
 
     let rooms = RoomDirectory(config.homeserver)
+    // The mapping is only meaningful with a bridge configured; without one
+    // no link is ever opened, so what it holds does not matter.
+    let links =
+      LinkDirectory(
+        env,
+        config.homeserver,
+        match config.bridges
+        | let bridges: Bridges => bridges.mapping
+        else
+          NameMapping("{localpart}", "{nick}")
+        end)
 
     // Declared rooms are made before the listener opens, so a client that
     // connects the instant marilwyd is up finds them already there.
     match config.bridges
     | let bridges: Bridges =>
       for network in bridges.networks.values() do
-        // `env.out` and not `log`: whether a bridge reached its network is
-        // startup information like the address it is listening on, not a
-        // request log. Hiding it behind `--log-requests` meant a bridge
-        // that never connected said nothing at all.
-        let bridge =
-          IrcBridge(network, bridges.mapping, config.homeserver, env.out)
-        _bridges.push(bridge)
-        match \exhaustive\ _Connect(env, network, bridge)
-        | let link: irc.IRC => _links.push(link)
-        | let e: StartupError =>
-          env.err.print("marilwyd: " + e.message)
-          env.exitcode(1)
-          return
-        end
         // The room is created on behalf of the bridge's own identity —
         // the same one it will use on IRC, so a room's creator is the
         // thing that speaks in it rather than whichever person happened
@@ -115,12 +106,13 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
             bridges.mapping.matrix_localpart(
               network.name, try network.nicks(0)? else network.name end))
         for channel in network.channels.values() do
-          rooms.declare(channel, creator, this)
+          rooms.declare(channel, network, creator, this)
         end
       end
     end
 
-    match \exhaustive\ Routes(config, SessionRegistry(epoch), rooms, epoch, log)
+    match \exhaustive\
+      Routes(config, SessionRegistry(epoch), rooms, links, epoch, log)
     | let built: hobby.BuiltApplication =>
       hobby.Server(
         lori.TCPListenAuth(env.root),
@@ -133,25 +125,15 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
       env.exitcode(1)
     end
 
-  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
     """
-    Printed rather than logged, and printed once.
+    Printed so an operator can see what was declared and under what name.
 
-    An operator who pastes this back into `--bridges` gets a room whose id
-    survives a restart as well as its alias. It goes to stdout and never to
-    the request log: a room id is the entire access control on a room, and
-    `SECURITY.md` says not to put one where logs are kept.
+    No room id, because there is no room: a bridged channel is something
+    people get their own room for, and the alias is the handle they use.
     """
-    // Told to every bridge rather than to the one that declared it: `Main`
-    // does not keep the pairing, and a bridge ignores a channel it was not
-    // configured with.
-    for bridge in _bridges.values() do
-      bridge.carries(channel.channel, room)
-    end
-
     _env.out.print(
-      "marilwyd: " + channel.channel + " is " + channel.alias.string()
-        + " " + id.string())
+      "marilwyd: " + channel.channel + " is " + channel.alias.string())
 
   be declaration_refused(channel: String) =>
     _env.err.print(

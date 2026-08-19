@@ -114,22 +114,8 @@ primitive ReadBridges
         end
         seen_alias.push(text')
 
-        let declared =
-          if channel.room_id.size() == 0 then
-            None
-          else
-            match RoomIds(channel.room_id, server_name)
-            | let id: RoomId => id
-            else
-              return StartupError(
-                "bridge-room-id",
-                at + ": that is not a room id this server could have made")
-            end
-          end
-
         channels.push(
-          BridgedChannel(
-            channel.channel, channel.room_name, alias, declared))
+          BridgedChannel(channel.channel, channel.room_name, alias))
       end
 
       networks.push(
@@ -186,18 +172,15 @@ class val _RawChannel
   let channel: String
   let room_name: String
   let alias: String
-  let room_id: String
 
   new val create(
     channel': String,
     room_name': String,
-    alias': String,
-    room_id': String)
+    alias': String)
   =>
     channel = channel'
     room_name = room_name'
     alias = alias'
-    room_id = room_id'
 
 primitive _RawNetworkOf
   fun apply(c: YamlView ref): _RawNetwork =>
@@ -214,5 +197,4 @@ primitive _RawChannelOf
     _RawChannel(
       c("channel").text(),
       c("room_name").text(),
-      c("alias").optional().text_or_else(""),
-      c("room_id").optional().text_or_else(""))
+      c("alias").optional().text_or_else(""))
