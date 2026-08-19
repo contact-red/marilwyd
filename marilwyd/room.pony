@@ -208,10 +208,12 @@ actor Room
     accept anything from them and for a client to render their name, but
     there is no device anywhere to hand their own words back to.
 
-    Admitted on first speech and never parted. Mirroring joins and parts
-    would fan a membership event to every device for every join, part and
-    quit on a busy channel, and grow the room's permanently-kept state by
-    one entry per nickname ever seen rather than per nickname ever heard.
+    Idempotent, because a participant is admitted from more than one place:
+    from the channel's own member list on entering it, from a later join,
+    and from anything they say. The last is not redundancy — a name list
+    can be missed and a netsplit can heal without one — and it is what
+    keeps the room agreeing with the channel rather than with a single
+    message that may not have arrived.
     """
     if not _state.is_member(user_id) then
       _state.join(user_id)
@@ -224,6 +226,20 @@ actor Room
         "{\"membership\":\"join\",\"displayname\":"
           + _quoted(display) + "}",
         user_id)
+    end
+
+  be part_ghost(user_id: String) =>
+    """
+    A far-side participant left the channel.
+
+    The membership event is written and the member removed, so a client's
+    list matches who is actually there. Only ghosts leave this way: a
+    Matrix member leaves through `leave`, which also closes their
+    connection.
+    """
+    if _state.is_member(user_id) then
+      _append(user_id, "m.room.member", "{\"membership\":\"leave\"}", user_id)
+      _state.leave(user_id)
     end
 
   be send(

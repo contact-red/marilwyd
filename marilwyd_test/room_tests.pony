@@ -236,3 +236,92 @@ class \nodoc\ iso _TestPendingHandlesAnImpossiblePosition is UnitTest
     else
       _NoRandom(h)
     end
+
+class \nodoc\ iso _TestGhostsComeAndGo is UnitTest
+  """
+  A far-side participant leaves the room when they leave the channel.
+
+  The half that used to be missing. Ghosts were admitted when they first
+  spoke and never removed, so a room's member list was everyone who had
+  ever said anything rather than everyone who is there — and a person
+  reading a bridged channel could not tell who was still listening.
+  """
+  fun name(): String => "rooms/a ghost leaves when the channel says so"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(2_000_000_000)
+    match MakeRoomId("example.test")
+    | let id: RoomId => _GhostMembership(h, id)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _GhostMembership is (StateReceiver & RoomCreationReceiver)
+  """
+  Admits two ghosts, parts one, and reads back who the room says is there.
+
+  An actor because a room is one: the answer has to come back through a
+  behaviour, and asserting straight after the call would assert on a state
+  the room has not reached.
+  """
+  let _h: TestHelper
+  let _room: Room
+  let _user: User
+
+  new create(h: TestHelper, id: RoomId) =>
+    _h = h
+    _user = User("@alice:example.test")
+    _room = Room(id)
+    _room.created_by(
+      "@alice:example.test",
+      _user,
+      CreateRoomRequest(None, None, false),
+      this,
+      _user)
+
+  be room_created(id: RoomId) =>
+    _room
+      .> admit_ghost("@irc_net_bob:example.test", "bob")
+      .> admit_ghost("@irc_net_carol:example.test", "carol")
+      .> part_ghost("@irc_net_bob:example.test")
+      // Nobody. Parting a stranger must not write a membership event for
+      // one, which is what would happen on every `QUIT` the channel sees
+      // for somebody who never joined it.
+      .> part_ghost("@irc_net_dave:example.test")
+      .> members("@alice:example.test", this)
+
+  be room_refused() =>
+    _h.fail("the room was not created")
+    _h.complete(false)
+
+  be alias_taken() =>
+    _h.fail("an unnamed room claimed an alias")
+    _h.complete(false)
+
+  be state_refused(why: NotInRoom) =>
+    _h.fail("the creator could not read the room")
+    _h.complete(false)
+
+  be state_listed(events: Array[RoomEvent] val) =>
+    var alice = false
+    var bob = false
+    var carol = false
+    var dave = false
+    for event in events.values() do
+      if event.kind != "m.room.member" then
+        continue
+      end
+      let joined = event.content.contains("\"membership\":\"join\"")
+      match event.state_key
+      | "@alice:example.test" => alice = joined
+      | "@irc_net_bob:example.test" => bob = joined
+      | "@irc_net_carol:example.test" => carol = joined
+      | "@irc_net_dave:example.test" => dave = true
+      end
+    end
+
+    _h.assert_true(alice, "the creator was not a member")
+    _h.assert_false(bob, "a parted ghost was still a member")
+    _h.assert_true(carol, "a ghost that stayed was not a member")
+    _h.assert_false(dave, "parting a stranger wrote a membership event")
+    _h.complete(true)
