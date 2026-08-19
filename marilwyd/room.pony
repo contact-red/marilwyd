@@ -47,23 +47,41 @@ actor Room
     is observed, and a seam would have to be cut once for all four `Make*`
     primitives rather than for this one.
     """
-    match _append(
-      user_id,
-      "m.room.create",
-      "{\"creator\":" + _quoted(user_id) + "}",
-      "")
+    match _write_room(user_id, wanted)
     | None =>
       receiver.room_refused()
       return
     end
 
+    _admit(user_id, user)
+    receiver.room_created(_state.id)
+
+  fun ref _write_room(user_id: String, wanted: CreateRoomRequest)
+    : (EventId | None)
+  =>
+    """
+    The events that make a room a room, shared by the two ways one is made.
+
+    Answers `None` when any of them could not be written, which is the
+    CSPRNG refusing an event id. Every caller stops there: a room missing
+    its `m.room.create` is not a room.
+    """
+    let created =
+      match _append(
+        user_id,
+        "m.room.create",
+        "{\"creator\":" + _quoted(user_id) + "}",
+        "")
+      | let id: EventId => id
+      else
+        return None
+      end
+
     match wanted.name
     | let n: String =>
       match _append(
         user_id, "m.room.name", "{\"name\":" + _quoted(n) + "}", "")
-      | None =>
-        receiver.room_refused()
-        return
+      | None => return None
       end
     end
 
@@ -79,14 +97,32 @@ actor Room
         "m.room.canonical_alias",
         "{\"alias\":" + _quoted(text) + "}",
         "")
-      | None =>
-        receiver.room_refused()
-        return
+      | None => return None
       end
     end
 
-    _admit(user_id, user)
-    receiver.room_created(_state.id)
+    created
+
+  be declared(
+    creator: String,
+    wanted: CreateRoomRequest,
+    channel: BridgedChannel,
+    receiver: DeclaredRoomReceiver tag)
+  =>
+    """
+    Write the events that make a declared room a room, and admit nobody.
+
+    `created_by` cannot serve here: it admits its creator, and a room
+    declared at startup has no member to admit — the account it is created
+    on behalf of is the bridge, which has no `User` actor until it
+    connects.
+    """
+    match _write_room(creator, wanted)
+    | None =>
+      receiver.declaration_refused(channel.channel)
+      return
+    end
+    receiver.room_declared(channel, _state.id)
 
   be join(user_id: String, user: User tag, receiver: MembershipReceiver tag) =>
     """

@@ -351,6 +351,13 @@ class \nodoc\ iso _TestAccountDataIsNotResent is UnitTest
   """
   A client that has already been told does not need telling again, or every
   sync would carry the whole account's data forever.
+
+  Driven at the device rather than through the user, and that is the point
+  of the test rather than a detail of it. Setting the data on the `User`
+  makes the `User` send it to the `Device`, while the sync comes from here
+  — two senders into one mailbox with nothing ordering them. The version
+  that did so passed only when the sync won the race, and asserted the
+  opposite of its own name when it lost.
   """
   fun name(): String => "account/a client past the change is not told again"
 
@@ -358,12 +365,12 @@ class \nodoc\ iso _TestAccountDataIsNotResent is UnitTest
     h.long_test(10_000_000_000)
     try
       let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
-      let alice = User("@alice:example.test")
-      alice.attach("laptop", device)
-      alice.set_account_data("m.quiet", "{\"on\":true}")
-
-      // The change landed at position 0, so a client already at 0 has it.
-      device.sync(USize(0), 0, _ExpectNoAccountData(h))
+      device
+        .> account_data(
+          recover val [AccountDatum("m.quiet", "{\"on\":true}")] end)
+        // The change advances the device to position 1, so a client asking
+        // for what comes after 1 has already had it.
+        .> sync(USize(1), 0, _ExpectNoAccountData(h))
     else
       _NoRandom(h)
     end

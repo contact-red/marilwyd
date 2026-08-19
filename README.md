@@ -35,6 +35,12 @@ seconds. That number is in the README because the naive version of the same
 endpoint — answering `keys/query` with empty key maps — produced 10,325
 requests in the same span.
 
+A bridge configuration may be named with `--bridges`. It declares which
+IRC channels marilwyd carries and what Matrix room each one is; the rooms
+are created before the listener opens, so a client connecting the instant
+marilwyd is up finds them there. Nothing is connected to yet — the file is
+read and the rooms are made.
+
 A room may be published in the directory and given an alias — `#pony:…` —
 which is how a person finds a room without being handed its id. Publishing
 one is deliberate rather than incidental: a room id is the entire access
@@ -125,6 +131,7 @@ marilwyd serve \
 | `--bind-host` | no | `127.0.0.1` |
 | `--bind-port` | no | the port in `--server-name`, else 8008 |
 | `--log-requests` | no | off |
+| `--bridges` | no | bridge nothing |
 
 `--server-name` is the only identity input. The advertised `base_url` is
 computed from it, so Element cannot be handed an address for a different
