@@ -122,7 +122,7 @@ actor Room
       receiver.declaration_refused(channel.channel)
       return
     end
-    receiver.room_declared(channel, _state.id)
+    receiver.room_declared(channel, _state.id, this)
 
   be join(user_id: String, user: User tag, receiver: MembershipReceiver tag) =>
     """
@@ -145,6 +145,33 @@ actor Room
       end
     end
     receiver.membership_changed(_state.id)
+
+  be admit_ghost(user_id: String, display: String) =>
+    """
+    Record a far-side participant as a member, with nothing to deliver to.
+
+    Membership without a delivery target, which is the distinction that lets
+    a bridge exist at all: an IRC user has to be a member for `send` to
+    accept anything from them and for a client to render their name, but
+    there is no device anywhere to hand their own words back to.
+
+    Admitted on first speech and never parted. Mirroring joins and parts
+    would fan a membership event to every device for every join, part and
+    quit on a busy channel, and grow the room's permanently-kept state by
+    one entry per nickname ever seen rather than per nickname ever heard.
+    """
+    if not _state.is_member(user_id) then
+      _state.join(user_id)
+      // The display name is the name as its owner spells it, while the user
+      // id is the folded, escaped form. A client shows the first and
+      // addresses the second, which is why both travel.
+      _append(
+        user_id,
+        "m.room.member",
+        "{\"membership\":\"join\",\"displayname\":"
+          + _quoted(display) + "}",
+        user_id)
+    end
 
   be send(
     user_id: String,
@@ -197,9 +224,18 @@ actor Room
     end
 
   fun ref _admit(user_id: String, user: User tag) =>
-    _append(user_id, "m.room.member", "{\"membership\":\"join\"}", user_id)
+    """
+    Add a member, and tell them so.
+
+    The order matters and used to be wrong. `_append` fans out to the
+    members as they stand, so appending the membership event before adding
+    the joiner told everyone in the room that somebody had joined except
+    the person joining — and a client that already held a sync position
+    learned nothing about the room it had just been let into.
+    """
     _state.join(user_id)
     _members(user_id) = user
+    _append(user_id, "m.room.member", "{\"membership\":\"join\"}", user_id)
     user.joined(_state.id.string(), this)
 
   fun ref _append(

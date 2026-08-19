@@ -38,8 +38,19 @@ requests in the same span.
 A bridge configuration may be named with `--bridges`. It declares which
 IRC channels marilwyd carries and what Matrix room each one is; the rooms
 are created before the listener opens, so a client connecting the instant
-marilwyd is up finds them there. Nothing is connected to yet — the file is
-read and the rooms are made.
+marilwyd is up finds them there. marilwyd then connects, joins each
+channel, and relays what is said there into the room.
+
+**Inbound only.** What is said on IRC reaches Matrix; nothing goes the
+other way yet. That half has no injection surface — marilwyd sends the
+network nothing a person wrote — and reading a channel from a phone is most
+of what a bridge is for.
+
+An IRC participant becomes a Matrix user the first time they speak, with
+their nickname as a display name. Two spellings of one nickname are one
+Matrix user, because IRC nicknames are case-insensitive; a nickname a
+Matrix user id cannot hold is escaped so that two different people can
+never become the same one.
 
 A room may be published in the directory and given an alias — `#pony:…` —
 which is how a person finds a room without being handed its id. Publishing

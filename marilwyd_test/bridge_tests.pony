@@ -177,7 +177,7 @@ actor \nodoc\ _DeclareThenLook is
     _rooms = RoomDirectory(hs)
     _rooms.declare(channel, "@irc_testnet_marilwyd:example.test", this)
 
-  be room_declared(channel: BridgedChannel, room: RoomId) =>
+  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
     // Only once the room says it exists, so nothing here races its
     // creation.
     _rooms.resolve_alias(channel.alias.string(), this)
@@ -245,8 +245,8 @@ actor \nodoc\ _DeclareWithId is DeclaredRoomReceiver
     RoomDirectory(hs).declare(
       channel, "@irc_testnet_marilwyd:example.test", this)
 
-  be room_declared(channel: BridgedChannel, room: RoomId) =>
-    _h.assert_eq[String](_wanted, room.string())
+  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
+    _h.assert_eq[String](_wanted, id.string())
     _h.complete(true)
 
   be declaration_refused(channel: String) =>

@@ -25,6 +25,11 @@ actor Device
   // array, a second room's state replaced the first's rather than joining
   // it, and a client signing in saw exactly one of its rooms.
   embed _state: Map[String, Array[RoomEvent] val] = _state.create()
+  // The position each room's state was last set at, so a client that
+  // already has a position is still told about a room it has only just
+  // joined. Without it, state travelled on a fresh sync alone and joining
+  // a room mid-session produced one with no name and no members.
+  embed _described: Map[String, USize] = _described.create()
   var _account: Array[AccountDatum] val =
     recover val Array[AccountDatum] end
   var _account_at: USize = 0
@@ -143,8 +148,16 @@ actor Device
     Held here rather than fetched at sync time so an initial sync needs no
     round trip to every room the user is in. Per room, because replacing
     the lot is what made a device in two rooms see one of them.
+
+    Stamped and woken like anything else a client needs to know about: a
+    room described after the position a client holds is a room that client
+    has not been told about yet.
     """
-    _state(room_id.clone()) = state'
+    let key: String = room_id.clone()
+    _state(key) = state'
+    _position = _position + 1
+    _described(key) = _position
+    _wake()
 
   be forget_room(room_id: String) =>
     """
@@ -157,6 +170,9 @@ actor Device
     """
     try
       (_, _) = _state.remove(room_id)?
+    end
+    try
+      (_, _) = _described.remove(room_id)?
     end
 
   be account_data(data: Array[AccountDatum] val) =>
@@ -184,6 +200,7 @@ actor Device
 
     if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0)
       or (since is None) or _account_unseen(since)
+      or (_describing(since).size() > 0)
     then
       _answer(receiver, since)
     else
@@ -306,14 +323,27 @@ actor Device
     end
     consume merged
 
-  fun _described(): Array[RoomEvent] val =>
+  fun _describing(since: (USize | None)): Array[RoomEvent] val =>
     """
-    The current state of every room this device is in.
+    The state of every room this client has not been told about yet.
+
+    Everything on a fresh sync, and on an incremental one the rooms
+    described since the position the client gave — which is how a room
+    joined mid-session arrives with its name and its members rather than
+    as a bare id.
     """
     let found = recover iso Array[RoomEvent] end
-    for events in _state.values() do
-      for event in events.values() do
-        found.push(event)
+    for (room_id, events) in _state.pairs() do
+      let unseen =
+        match since
+        | let given: USize => _described.get_or_else(room_id, 0) > given
+        else
+          true
+        end
+      if unseen then
+        for event in events.values() do
+          found.push(event)
+        end
       end
     end
     consume found
@@ -342,12 +372,7 @@ actor Device
     // State travels only when the client has no usable position. A client
     // that is up to date has already been told, and a state change since
     // then arrived as an ordinary event.
-    let state' =
-      match since
-      | let _: USize => recover val Array[RoomEvent] end
-      else
-        _described()
-      end
+    let state' = _describing(since)
     let account =
       if _account_unseen(since) then
         _account

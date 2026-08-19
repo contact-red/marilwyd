@@ -1,5 +1,7 @@
 use "files"
+use "ssl/net"
 use hobby = "hobby"
+use irc = "irc"
 use lori = "lori"
 use stallion = "stallion"
 
@@ -36,6 +38,12 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
   Startup, and the only place marilwyd writes to stdout or stderr.
   """
   let _env: Env
+  embed _bridges: Array[IrcBridge tag] = _bridges.create()
+  // The connections are held here for the length of the process. Nothing
+  // else refers to one — a bridge is told about its rooms, not its socket
+  // — so dropping the reference leaves an actor that connects and is then
+  // collected, which is a bridge that silently never joins anything.
+  embed _links: Array[irc.IRC tag] = _links.create()
 
   new create(env: Env) =>
     _env = env
@@ -84,6 +92,20 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
     match config.bridges
     | let bridges: Bridges =>
       for network in bridges.networks.values() do
+        // `env.out` and not `log`: whether a bridge reached its network is
+        // startup information like the address it is listening on, not a
+        // request log. Hiding it behind `--log-requests` meant a bridge
+        // that never connected said nothing at all.
+        let bridge =
+          IrcBridge(network, bridges.mapping, config.homeserver, env.out)
+        _bridges.push(bridge)
+        match \exhaustive\ _Connect(env, network, bridge)
+        | let link: irc.IRC => _links.push(link)
+        | let e: StartupError =>
+          env.err.print("marilwyd: " + e.message)
+          env.exitcode(1)
+          return
+        end
         // The room is created on behalf of the bridge's own identity —
         // the same one it will use on IRC, so a room's creator is the
         // thing that speaks in it rather than whichever person happened
@@ -111,7 +133,7 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
       env.exitcode(1)
     end
 
-  be room_declared(channel: BridgedChannel, room: RoomId) =>
+  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
     """
     Printed rather than logged, and printed once.
 
@@ -120,9 +142,16 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
     the request log: a room id is the entire access control on a room, and
     `SECURITY.md` says not to put one where logs are kept.
     """
+    // Told to every bridge rather than to the one that declared it: `Main`
+    // does not keep the pairing, and a bridge ignores a channel it was not
+    // configured with.
+    for bridge in _bridges.values() do
+      bridge.carries(channel.channel, room)
+    end
+
     _env.out.print(
       "marilwyd: " + channel.channel + " is " + channel.alias.string()
-        + " " + room.string())
+        + " " + id.string())
 
   be declaration_refused(channel: String) =>
     _env.err.print(

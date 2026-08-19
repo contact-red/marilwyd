@@ -378,6 +378,40 @@ The member count is the one thing in a listing that is not otherwise
 public. It is what every client renders beside a room, and it is a count
 rather than a list: the directory never names who is in a room.
 
+## What a bridge carries into a room
+
+marilwyd connects out to an IRC network and relays what it hears. Three
+things about that are worth stating, because each is a way a stranger on a
+public channel reaches a Matrix client.
+
+**A nickname becomes a user id, and the mapping is injective.** IRC
+nicknames are case-insensitive and may hold characters a Matrix localpart
+may not, so each is folded under the network's own rule and then escaped —
+anything outside `a-z 0-9 . _ = / + -` becomes `=` and two hex digits, and
+`=` is itself escaped. Without that last part `a=62` and `ab` would name
+one Matrix user, and one person on a channel could speak as another.
+
+**IRC is bytes and Matrix is JSON.** A line may carry any encoding or
+none, while a Matrix event must be valid UTF-8 or clients refuse the
+document it arrives in. Everything relayed is checked and malformed
+sequences replaced, so one person on a channel cannot emit a sync response
+that every client in the room rejects. Overlong forms and surrogates count
+as malformed: accepting them would give the same text two spellings.
+
+**A participant is a member with nothing to deliver to.** Somebody who
+speaks on the channel is admitted to the room so that a client can render
+their name and so the room will accept what they said. They are admitted on
+first speech and never parted — mirroring joins and parts would grow the
+room's permanently kept state by one entry per nickname ever *seen* rather
+than per nickname ever heard, driven by a party with no account here. That
+bound is the one thing on a bridged room that an unauthenticated stranger
+moves, and it is stated rather than solved.
+
+marilwyd relays nothing out, so nothing a Matrix user writes reaches the
+network yet. When that changes it needs its own limits — a message that is
+one line in Matrix is many on IRC, and control characters in a line are
+commands to a server.
+
 ## The bridge configuration
 
 `--bridges` is read under the same posture as the credentials file:
