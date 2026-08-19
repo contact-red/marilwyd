@@ -3,7 +3,7 @@
   "deps": [
     {
       "locator": "github.com/contact-red/irc.git",
-      "version": "main"
+      "version": "0.1.0"
     },
     {
       "locator": "github.com/ponylang/hobby.git",
