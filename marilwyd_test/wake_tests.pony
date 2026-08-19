@@ -22,7 +22,8 @@ class \nodoc\ iso _TestAnEventWakesAParkedDevice is UnitTest
       // `_Message` carries this body; asserting on it rather than on the
       // event's presence is what makes the test fail if the wrong event
       // were delivered.
-      device.sync(USize(0), 25_000, _ExpectWoken(h, "\"body\":\"hello\""))
+      device.sync(
+        USize(0), 25_000, _ExpectWoken(h, "\"body\":\"hello\"", device))
       device.deliver(_Message(room, "@alice:example.test", 0)?)
     else
       _NoRandom(h)
@@ -72,7 +73,8 @@ class \nodoc\ iso _TestRoomReachesItsMembersDevices is UnitTest
           CreateRoomRequest(None, None, false),
           _IgnoreCreation)
 
-      device.sync(USize(0), 25_000, _ExpectWoken(h, "hello from a room"))
+      device.sync(
+        USize(0), 25_000, _ExpectWoken(h, "hello from a room", device))
       room.send(
         "@alice:example.test",
         "m.room.message",
@@ -116,7 +118,8 @@ class \nodoc\ iso _TestRoomReachesNobodyOutsideIt is UnitTest
           CreateRoomRequest(None, None, false),
           _IgnoreCreation)
 
-      bob_device.sync(USize(0), 25_000, _ExpectWoken(h, "for bob only"))
+      bob_device.sync(
+        USize(0), 25_000, _ExpectWoken(h, "for bob only", bob_device))
 
       // Alice's room must not reach bob; bob's must.
       alice_room.send(
@@ -135,25 +138,44 @@ class \nodoc\ iso _TestRoomReachesNobodyOutsideIt is UnitTest
 
 actor _ExpectWoken is SyncReceiver
   """
-  Asserts a sync was answered, and that what arrived contains `expected`
-  and nothing from another room.
+  Asserts that what a device is owed eventually contains `expected`, and
+  never anything from another room.
+
+  Syncs again rather than asserting on the first answer, because a device
+  is owed more than one thing: joining a room now delivers the joiner's own
+  membership, so a sync parked before a message can legitimately be woken
+  by the join first. Asserting on the first answer made these tests
+  sensitive to how many events a join produces, which is not what they are
+  about.
   """
   let _h: TestHelper
   let _expected: String
+  let _device: Device
+  var _seen: USize = 0
 
-  new create(h: TestHelper, expected: String) =>
+  new create(h: TestHelper, expected: String, device: Device) =>
     _h = h
     _expected = expected
+    _device = device
 
   be synced(view: SyncView) =>
     let rendered = SyncDocument(view)
-    _h.assert_true(
-      rendered.contains(_expected),
-      "woken without the event: " + rendered)
     _h.assert_false(
       rendered.contains("for alice only"),
       "woken with another room's event: " + rendered)
-    _h.complete(true)
+
+    if rendered.contains(_expected) then
+      _h.complete(true)
+      return
+    end
+
+    _seen = _seen + 1
+    if _seen > 4 then
+      _h.fail("never woken with the event: " + rendered)
+      _h.complete(false)
+    else
+      _device.sync(_seen, 25_000, this)
+    end
 
 actor _ExpectEmpty is SyncReceiver
   """
@@ -306,11 +328,62 @@ class \nodoc\ iso _TestAWokenSyncCarriesNoState is UnitTest
       // `tag` inside one, while a `RoomEvent` is `val` and passes freely.
       let named = _State(room, "m.room.name", "", "{\"name\":\"pony\"}", 0)?
       let id: String = room.id.string()
-      device.room_state(id, recover val [named] end)
-      device.sync(USize(0), 25_000, _ExpectNoState(h))
-      device.deliver(_Message(room, "@alice:example.test", 1)?)
+      _StateOnlyOnce(
+        h,
+        device,
+        id,
+        recover val [named] end,
+        _Message(room, "@alice:example.test", 1)?)
     else
       _NoRandom(h)
+    end
+
+actor \nodoc\ _StateOnlyOnce is SyncReceiver
+  """
+  A room's state reaches a client once and is not sent again.
+
+  The rule this checks changed: state used to travel only on a sync with
+  no position at all, which is why a client that joined a room mid-session
+  was never told what it had joined. It now travels to a client whose
+  position predates the description — so the property worth pinning is that
+  it stops, not that it never starts.
+  """
+  let _h: TestHelper
+  let _device: Device
+  let _message: RoomEvent
+  var _first: Bool = true
+
+  new create(
+    h: TestHelper,
+    device: Device,
+    room_id: String,
+    state: Array[RoomEvent] val,
+    message: RoomEvent)
+  =>
+    _h = h
+    _device = device
+    _message = message
+    // Describing advances the device to position 1, so a client at 0 has
+    // not been told and a client at 1 has.
+    device .> room_state(room_id, state) .> sync(USize(0), 0, this)
+
+  be synced(view: SyncView) =>
+    let rendered = SyncDocument(view)
+    if _first then
+      _first = false
+      _h.assert_eq[USize](
+        1, view.state.size(), "a room was described to nobody: " + rendered)
+      // Now past it, and an ordinary message must not drag it back.
+      _device .> deliver(_message) .> sync(USize(1), 0, this)
+    else
+      _h.assert_eq[USize](
+        0,
+        view.state.size(),
+        "a woken sync re-sent state the client had: " + rendered)
+      _h.assert_true(
+        rendered.contains("\"body\""),
+        "the message that woke it was missing: " + rendered)
+      _h.complete(true)
     end
 
 actor _ExpectNoState is SyncReceiver
@@ -534,3 +607,127 @@ actor \nodoc\ _IgnoreCreation is RoomCreationReceiver
   be room_created(room: RoomId) => None
   be alias_taken() => None
   be room_refused() => None
+
+class \nodoc\ iso _TestJoiningWhileSyncingIsTold is UnitTest
+  """
+  What Element hit: a client that already holds a sync position joins a
+  room from the public directory, and is never told the room exists.
+
+  Two faults met here. `_admit` fanned the membership event out before
+  adding the joiner, so everyone learned of the join except the person
+  joining; and a room's state travelled only on a fresh sync, so a client
+  with a position got nothing either way. The sync waited its full
+  twenty-five seconds and answered with nothing, twice, which is what
+  hanging looks like from the client's side.
+  """
+  fun name(): String => "sync/joining while syncing tells the joiner"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      _JoinWhileSyncing(h, _AnyRoomId()?, _AnyDeviceId()?, _AnyEpoch()?)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _JoinWhileSyncing is (MembershipReceiver & SyncReceiver)
+  """
+  Parks a sync at a position, then joins the room, then reads what the
+  parked sync was answered with.
+  """
+  let _h: TestHelper
+  let _device: Device
+  let _user: User
+  let _room: Room
+
+  new create(
+    h: TestHelper,
+    id: RoomId,
+    device_id: DeviceId,
+    epoch: StreamEpoch)
+  =>
+    _h = h
+    _device = Device(device_id, epoch)
+    _user = User("@alice:example.test")
+    _room = Room(id)
+    _user.attach("laptop", _device)
+    // A position, so this is the incremental case rather than a first
+    // sync — the case that was broken.
+    _device.sync(USize(0), 25_000, this)
+    _room.join("@alice:example.test", _user, this)
+
+  be membership_changed(room: RoomId) => None
+
+  be membership_refused(why: NoSuchRoom) =>
+    _h.fail("joining was refused")
+    _h.complete(false)
+
+  be synced(view: SyncView) =>
+    let rendered = SyncDocument(view)
+    // The room has to appear at all, which it did not before: an empty
+    // answer here is the hang.
+    _h.assert_true(
+      rendered.contains("\"rooms\":{\"join\":{"),
+      "a client that joined was told about no room: " + rendered)
+
+    // And the joiner's own membership has to arrive as an event, not only
+    // in the room's state. Asserting on the rendered document alone could
+    // not tell the two apart, and the state half is delivered whether or
+    // not the joiner was added to the room before its membership event was
+    // fanned out — so a test that looked at the document passed with the
+    // fan-out order still wrong.
+    var told = false
+    for event in view.events.values() do
+      if event.kind == "m.room.member" then
+        told = true
+      end
+    end
+    _h.assert_true(
+      told,
+      "the joiner was not sent its own membership: " + rendered)
+    _h.complete(true)
+
+class \nodoc\ iso _TestDescribingARoomWakesAParkedSync is UnitTest
+  """
+  A device holding a sync is told about a room as soon as the room is
+  described to it, without waiting for somebody to speak.
+
+  Today a join delivers a membership event alongside the description, so
+  the sync would be woken either way — which is exactly why this is worth
+  its own test. Nothing else observes the wake, so without this the
+  mechanism would be held up by a coincidence, and the first path that
+  describes a room without an event beside it would leave a client waiting
+  out its full deadline.
+  """
+  fun name(): String => "sync/describing a room wakes a parked sync"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    try
+      let device = Device(_AnyDeviceId()?, _AnyEpoch()?)
+      let room = _AnyRoom()?
+      let named = _State(room, "m.room.name", "", "{\"name\":\"pony\"}", 0)?
+      let id: String = room.id.string()
+      // Parked first, with a position, and then described — and nothing
+      // is delivered, so only the description can answer it.
+      device
+        .> sync(USize(0), 25_000, _ExpectDescribed(h))
+        .> room_state(id, recover val [named] end)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _ExpectDescribed is SyncReceiver
+  let _h: TestHelper
+
+  new create(h: TestHelper) =>
+    _h = h
+
+  be synced(view: SyncView) =>
+    let rendered = SyncDocument(view)
+    _h.assert_eq[USize](
+      1, view.state.size(), "woken without the room: " + rendered)
+    _h.assert_eq[USize](
+      0, view.events.size(), "woken with an event nobody sent: " + rendered)
+    _h.assert_true(rendered.contains("pony"), rendered)
+    _h.complete(true)

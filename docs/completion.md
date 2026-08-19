@@ -73,7 +73,7 @@ Paths are relative to `/_matrix/client/v3/` unless marked otherwise.
 | POST | `room_keys/version` | done |
 | PUT | `user/{userId}/account_data/{type}` | done |
 | GET | `capabilities` | not started |
-| GET | `profile/{userId}` | not started |
+| GET | `profile/{userId}` | done |
 | GET | `voip/turnServer` | not started |
 | GET | `thirdparty/protocols` | not started |
 | POST | `register` | out of scope |
@@ -135,6 +135,7 @@ them on the paths it takes.
 | GET | `rooms/{roomId}/state` | |
 | POST | `keys/claim` | no second device has claimed one yet |
 | PUT | `sendToDevice/{type}/{txn}` | Element sends none with one device |
+| GET | `rooms/{roomId}/members` | Element asks on entering a room |
 | GET | `directory/room/{roomAlias}` | driven through the client's own SDK |
 | GET | `publicRooms` | driven through the client's own SDK |
 | POST | `publicRooms` | what a search in Explore sends |

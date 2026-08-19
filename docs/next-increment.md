@@ -82,7 +82,6 @@ storming.
 | Method | Path | Cost of leaving it |
 |---|---|---|
 | GET | `capabilities` | Element assumes defaults |
-| GET | `profile/{userId}` | no display name or avatar anywhere |
 | GET | `voip/turnServer` | no calls |
 | GET | `thirdparty/protocols` | no bridge list in the UI |
 | POST | `register` | out of scope permanently |
@@ -90,8 +89,10 @@ storming.
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | no dehydration |
 | GET | `unstable/org.matrix.msc4143/rtc/transports` | no element call |
 
-`profile` is the cheapest of these and the most visible: it is why the
-client shows a user id where a name belongs.
+`m.fully_read` is the one part of that group still dropped. It is a private
+per-room marker — the line Element draws for unread messages — and it needs
+room-scoped account data, which marilwyd has none of. The receipt beside it
+in the same request is kept, which is what stopped the retry loop.
 
 ## What was measured, so it need not be measured again
 

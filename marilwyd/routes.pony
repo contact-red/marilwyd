@@ -122,6 +122,25 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/rooms/:roomId/state",
         _RoomState(sessions, rooms))
+      // Asked as soon as a client renders a room, and again for every
+      // participant it does not recognise.
+      .> get(
+        "/_matrix/client/v3/rooms/:roomId/members",
+        _RoomState(sessions, rooms, MembersOnly))
+      .> get(
+        "/_matrix/client/v3/profile/:userId",
+        _Profile(sessions, hs))
+      // What a client in a room does constantly. All three were retried on
+      // a loop while they answered `M_UNRECOGNIZED`.
+      .> post(
+        "/_matrix/client/v3/rooms/:roomId/receipt/:receiptType/:eventId",
+        _Receipt(sessions, rooms, ReadReceipt))
+      .> post(
+        "/_matrix/client/v3/rooms/:roomId/read_markers",
+        _Receipt(sessions, rooms, FullyRead))
+      .> put(
+        "/_matrix/client/v3/rooms/:roomId/typing/:userId",
+        _Typing(sessions, rooms))
       .> put(
         "/_matrix/client/v3/user/:userId/account_data/:type",
         _SetAccountData(sessions))

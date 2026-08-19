@@ -19,6 +19,12 @@ actor Room
   let _state: RoomState
   embed _members: Map[String, User tag] = _members.create()
   var _position: USize = 0
+  // Read positions and who is typing. Not in `RoomState`, which is what a
+  // room *is* — these are what it is doing at one moment, they are never
+  // events in its timeline, and nothing about them is kept when the
+  // process ends.
+  embed _receipts: Map[String, Receipt] = _receipts.create()
+  embed _typing: Map[String, Bool] = _typing.create()
 
   new create(id': RoomId) =>
     _state = RoomState(id')
@@ -122,7 +128,7 @@ actor Room
       receiver.declaration_refused(channel.channel)
       return
     end
-    receiver.room_declared(channel, _state.id)
+    receiver.room_declared(channel, _state.id, this)
 
   be join(user_id: String, user: User tag, receiver: MembershipReceiver tag) =>
     """
@@ -145,6 +151,33 @@ actor Room
       end
     end
     receiver.membership_changed(_state.id)
+
+  be admit_ghost(user_id: String, display: String) =>
+    """
+    Record a far-side participant as a member, with nothing to deliver to.
+
+    Membership without a delivery target, which is the distinction that lets
+    a bridge exist at all: an IRC user has to be a member for `send` to
+    accept anything from them and for a client to render their name, but
+    there is no device anywhere to hand their own words back to.
+
+    Admitted on first speech and never parted. Mirroring joins and parts
+    would fan a membership event to every device for every join, part and
+    quit on a busy channel, and grow the room's permanently-kept state by
+    one entry per nickname ever seen rather than per nickname ever heard.
+    """
+    if not _state.is_member(user_id) then
+      _state.join(user_id)
+      // The display name is the name as its owner spells it, while the user
+      // id is the folded, escaped form. A client shows the first and
+      // addresses the second, which is why both travel.
+      _append(
+        user_id,
+        "m.room.member",
+        "{\"membership\":\"join\",\"displayname\":"
+          + _quoted(display) + "}",
+        user_id)
+    end
 
   be send(
     user_id: String,
@@ -189,6 +222,91 @@ actor Room
         _NameIn(_state.content_of("m.room.canonical_alias"), "alias"),
         _state.size()))
 
+  be read_up_to(user_id: String, event_id: String) =>
+    """
+    Record how far somebody has read, and tell the room.
+
+    Last write wins per person: a read position is where they are now, not
+    a history of where they have been. A receipt for an event this room
+    never sent is stored anyway — marilwyd keeps no messages, so it cannot
+    tell one from an event it has forgotten, and refusing would break a
+    client that read something before a restart.
+    """
+    if not _state.is_member(user_id) then
+      return
+    end
+    (let sec: I64, let nsec: I64) = Time.now()
+    _receipts(user_id.clone()) =
+      Receipt(
+        user_id.clone(),
+        event_id.clone(),
+        (sec * 1000) + (nsec / 1_000_000))
+    _publish()
+
+  be typing(user_id: String, active: Bool) =>
+    """
+    Record whether somebody is typing, and tell the room.
+
+    Bounded, and dropped rather than refused past the bound: a notice
+    naming more people than anyone reads is worth less than the room
+    continuing to deliver. Nothing here expires — a client says when it
+    stops, and one that vanishes mid-sentence leaves its name until it
+    comes back or the process ends.
+    """
+    if not _state.is_member(user_id) then
+      return
+    end
+    if active then
+      if (_typing.size() < MaxTypists()) or _typing.contains(user_id) then
+        _typing(user_id.clone()) = true
+      end
+    else
+      try
+        (_, _) = _typing.remove(user_id)?
+      end
+    end
+    _publish()
+
+  fun ref _publish() =>
+    """
+    Hand every member's devices the room's current ephemeral state.
+
+    The whole of it each time rather than what changed: it is small,
+    last-write-wins, and a client that missed one has missed nothing the
+    next does not carry. Sending a delta would need a per-device position
+    for something that has no history.
+    """
+    let receipts = recover iso Array[Receipt] end
+    for receipt in _receipts.values() do
+      receipts.push(receipt)
+    end
+    let active = recover iso Array[String] end
+    for who in _typing.keys() do
+      active.push(who)
+    end
+
+    let current = Ephemeral(consume receipts, consume active)
+    let id: String = _state.id.string()
+    for user in _members.values() do
+      user.ephemeral(id, current)
+    end
+
+  be members(user_id: String, receiver: StateReceiver tag) =>
+    """
+    Answer who is in this room, to a member of it.
+
+    Members only, like `state`: a room id is the whole of the access
+    control, so anyone holding one may join and then read this — but
+    reading it without joining would let somebody enumerate a room's
+    membership from the id alone, which is a smaller thing to hold than a
+    membership.
+    """
+    if _state.is_member(user_id) then
+      receiver.state_listed(_state.member_events())
+    else
+      receiver.state_refused(NotInRoom)
+    end
+
   be state(user_id: String, receiver: StateReceiver tag) =>
     if _state.is_member(user_id) then
       receiver.state_listed(_state.state_events())
@@ -197,9 +315,18 @@ actor Room
     end
 
   fun ref _admit(user_id: String, user: User tag) =>
-    _append(user_id, "m.room.member", "{\"membership\":\"join\"}", user_id)
+    """
+    Add a member, and tell them so.
+
+    The order matters and used to be wrong. `_append` fans out to the
+    members as they stand, so appending the membership event before adding
+    the joiner told everyone in the room that somebody had joined except
+    the person joining — and a client that already held a sync position
+    learned nothing about the room it had just been let into.
+    """
     _state.join(user_id)
     _members(user_id) = user
+    _append(user_id, "m.room.member", "{\"membership\":\"join\"}", user_id)
     user.joined(_state.id.string(), this)
 
   fun ref _append(

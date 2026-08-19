@@ -228,6 +228,14 @@ primitive SyncDocument
           grouped(key) = Array[RoomEvent]
         end
       end
+      // And a room whose only news is that somebody is typing, or has read
+      // something, for the same reason: the entry is where the ephemeral
+      // block hangs, so without it the news has nowhere to go.
+      for (room_id, _) in view.ephemeral.values() do
+        if not grouped.contains(room_id) then
+          grouped(room_id) = Array[RoomEvent]
+        end
+      end
 
       let out = String(512)
       out.append("{\"next_batch\":")
@@ -279,7 +287,19 @@ primitive SyncDocument
             end
           end
 
-          out.append("]},\"timeline\":{\"events\":[")
+          out.append("]},\"ephemeral\":{\"events\":")
+          var ephemeral_written = false
+          for (id, current) in view.ephemeral.values() do
+            if id == room_id then
+              out.append(EphemeralEvents(current))
+              ephemeral_written = true
+            end
+          end
+          if not ephemeral_written then
+            out.append("[]")
+          end
+
+          out.append("},\"timeline\":{\"events\":[")
           var line_first = true
           for event in events.values() do
             if not line_first then
@@ -377,6 +397,35 @@ primitive UnknownToken
       .update("errcode", "M_UNKNOWN_TOKEN")
       .update("error", "Unrecognised access token")
       .update("soft_logout", true))
+
+primitive RoomMembers
+  """
+  The body of `GET /_matrix/client/v3/rooms/{roomId}/members`.
+
+  `chunk` rather than `events`, which is this endpoint's own spelling and
+  not the one `/state` uses — a client reads the two through different code
+  and neither accepts the other's field.
+
+  Every membership is a join here, because marilwyd has no other kind: no
+  invites, no bans, and a leave removes the event rather than rewriting it.
+  A client filtering by `not_membership=leave`, which Element sends, gets
+  the same answer either way.
+  """
+  fun apply(events: Array[RoomEvent] val): String =>
+    recover val
+      let out = String(256)
+      out.append("{\"chunk\":[")
+      var first = true
+      for event in events.values() do
+        if not first then
+          out.append(",")
+        end
+        first = false
+        out.append(event.render())
+      end
+      out.append("]}")
+      out
+    end
 
 primitive AliasResolved
   """

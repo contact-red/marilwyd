@@ -10,6 +10,7 @@ class val SyncView
   let state: Array[RoomEvent] val
   let account: Array[AccountDatum] val
   let to_device: Array[ToDeviceEvent] val
+  let ephemeral: Array[(String, Ephemeral)] val
   let gap: Bool
 
   new val create(
@@ -18,6 +19,7 @@ class val SyncView
     state': Array[RoomEvent] val,
     account': Array[AccountDatum] val,
     to_device': Array[ToDeviceEvent] val,
+    ephemeral': Array[(String, Ephemeral)] val,
     gap': Bool)
   =>
     next_batch = next_batch'
@@ -25,4 +27,5 @@ class val SyncView
     state = state'
     account = account'
     to_device = to_device'
+    ephemeral = ephemeral'
     gap = gap'
