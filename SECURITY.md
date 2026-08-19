@@ -378,6 +378,26 @@ The member count is the one thing in a listing that is not otherwise
 public. It is what every client renders beside a room, and it is a count
 rather than a list: the directory never names who is in a room.
 
+## The bridge configuration
+
+`--bridges` is read under the same posture as the credentials file:
+refused if anyone but its owner can read it, and refused inside
+`--asset-root`. Not for what it holds today — the test network wants no
+password — but because it may hold declared room ids, and a room id is the
+entire access control on a room.
+
+A declared room is published, so every account on this server can find it
+and join it. That is what declaring one is for, and it is the same thing
+the alias implies. Do not declare a channel you would not put in the
+public directory.
+
+Errors from reading the file name the file and the index — `networks[0]
+channels[0]` — and never the value that was wrong, because the value may
+be a room id. The minted id is printed once to stdout, deliberately and
+only there: it is what an operator pastes back into the file to make the
+room survive a restart, and `--log-requests` is the one place it must not
+go.
+
 ## Deployment shape
 
 marilwyd never terminates TLS: it calls `hobby.Server`, not

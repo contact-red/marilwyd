@@ -31,7 +31,7 @@ primitive ServerLimits
   fun apply(host: String, port: String): stallion.ServerConfig =>
     stallion.ServerConfig(host, port where max_body_size' = 65_536)
 
-actor Main is hobby.ServerNotify
+actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
   """
   Startup, and the only place marilwyd writes to stdout or stderr.
   """
@@ -79,6 +79,25 @@ actor Main is hobby.ServerNotify
 
     let rooms = RoomDirectory(config.homeserver)
 
+    // Declared rooms are made before the listener opens, so a client that
+    // connects the instant marilwyd is up finds them already there.
+    match config.bridges
+    | let bridges: Bridges =>
+      for network in bridges.networks.values() do
+        // The room is created on behalf of the bridge's own identity —
+        // the same one it will use on IRC, so a room's creator is the
+        // thing that speaks in it rather than whichever person happened
+        // to be running the server.
+        let creator =
+          config.homeserver.user_id(
+            bridges.mapping.matrix_localpart(
+              network.name, try network.nicks(0)? else network.name end))
+        for channel in network.channels.values() do
+          rooms.declare(channel, creator, this)
+        end
+      end
+    end
+
     match \exhaustive\ Routes(config, SessionRegistry(epoch), rooms, epoch, log)
     | let built: hobby.BuiltApplication =>
       hobby.Server(
@@ -91,6 +110,25 @@ actor Main is hobby.ServerNotify
       env.err.print("marilwyd: route table rejected: " + e.message)
       env.exitcode(1)
     end
+
+  be room_declared(channel: BridgedChannel, room: RoomId) =>
+    """
+    Printed rather than logged, and printed once.
+
+    An operator who pastes this back into `--bridges` gets a room whose id
+    survives a restart as well as its alias. It goes to stdout and never to
+    the request log: a room id is the entire access control on a room, and
+    `SECURITY.md` says not to put one where logs are kept.
+    """
+    _env.out.print(
+      "marilwyd: " + channel.channel + " is " + channel.alias.string()
+        + " " + room.string())
+
+  be declaration_refused(channel: String) =>
+    _env.err.print(
+      "marilwyd: could not declare a room for " + channel
+        + "; its id or alias is already in use")
+    _env.exitcode(1)
 
   be listening(server: hobby.Server, host: String, service: String) =>
     // `host` is hobby's `local_address().name()`, which resolves rather than

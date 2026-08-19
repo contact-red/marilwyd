@@ -15,6 +15,7 @@ class val Config
   let bind_host: String
   let bind_port: String
   let log_requests: Bool
+  let bridges: (Bridges | None)
 
   new val _create(
     homeserver': Homeserver,
@@ -23,7 +24,8 @@ class val Config
     credentials': Credentials,
     bind_host': String,
     bind_port': String,
-    log_requests': Bool)
+    log_requests': Bool,
+    bridges': (Bridges | None))
   =>
     homeserver = homeserver'
     asset_root = asset_root'
@@ -32,6 +34,7 @@ class val Config
     bind_host = bind_host'
     bind_port = bind_port'
     log_requests = log_requests'
+    bridges = bridges'
 
 class val StartupError
   """
@@ -99,6 +102,13 @@ primitive Configure
                 "credentials",
                 "JSON file of password hashes, one entry per local user."
                   + " Generate entries with 'marilwyd hash-password'.")
+              OptionSpec.string(
+                "bridges",
+                "YAML file of IRC bridges. Each declares a channel, the"
+                  + " Matrix room it is, and how a name on one side is"
+                  + " spelled on the other. Omitted, marilwyd bridges"
+                  + " nothing."
+                where default' = "")
               OptionSpec.string(
                 "scheme",
                 "Scheme for the advertised base_url"
@@ -187,6 +197,14 @@ primitive Configure
         | let c: Credentials => c
         | let e: StartupError => return e
         end
+      let bridges =
+        match \exhaustive\
+          _ReadBridgesFile(
+            cmd.option("bridges").string(), auth, root, hs.server_name)
+        | let b: Bridges => b
+        | None => None
+        | let e: StartupError => return e
+        end
       // Named arguments: `bind_host'` and `bind_port'` are adjacent strings
       // in the constructor, and this is the one place they are supplied.
       Config._create(
@@ -196,7 +214,8 @@ primitive Configure
         credentials
         where bind_host' = cmd.option("bind-host").string(),
               bind_port' = bind_port,
-              log_requests' = cmd.option("log-requests").bool())
+              log_requests' = cmd.option("log-requests").bool(),
+              bridges' = bridges)
     | let e: StartupError => e
     end
 
@@ -247,6 +266,59 @@ primitive _ReadCredentialsFile
     end
 
     ReadCredentials(resolved)
+
+primitive _ReadBridgesFile
+  """
+  Resolve and parse the bridges file, if one was named.
+
+  The same posture as the credentials file, and for a related reason: this
+  one holds no hashes, but it holds declared room ids, and a room id is the
+  entire access control on a room. A file of them inside the asset root
+  would publish them to anyone who can reach the socket.
+  """
+  fun apply(
+    path: String,
+    auth: FileAuth,
+    asset_root: FilePath,
+    server_name: String)
+    : (Bridges | None | StartupError)
+  =>
+    if path.size() == 0 then
+      return None
+    end
+
+    let caps =
+      recover val
+        FileCaps .> set(FileLookup) .> set(FileRead) .> set(FileStat)
+      end
+
+    let resolved =
+      try
+        FilePath(auth, path, caps).canonical()?
+      else
+        return StartupError(
+          "bridges-missing", "--bridges " + path + " does not exist")
+      end
+
+    if resolved.path.at(asset_root.path, 0) then
+      return StartupError(
+        "bridges-in-asset-root",
+        "--bridges " + resolved.path + " is inside --asset-root "
+          + asset_root.path + ", where every file is served to anyone who"
+          + " can reach this socket")
+    end
+
+    try
+      let mode = FileInfo(resolved)?.mode
+      if mode.group_read or mode.any_read then
+        return StartupError(
+          "bridges-permissions",
+          "--bridges " + resolved.path + " is readable by users other than"
+            + " its owner; chmod 600 it")
+      end
+    end
+
+    ReadBridges(resolved, server_name)
 
 primitive _BindPort
   """

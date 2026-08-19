@@ -64,6 +64,57 @@ actor RoomDirectory
       receiver.room_refused()
     end
 
+  be declare(
+    channel: BridgedChannel,
+    creator: String,
+    receiver: DeclaredRoomReceiver tag)
+  =>
+    """
+    Make a room an operator declared, before any client connects.
+
+    Nobody is admitted. A declared room starts empty and is joined the way
+    any published room is — through the directory, by its alias — so it
+    needs no `User` actor to exist at a point in startup where none do.
+
+    Its id is the one in the file when there is one, and a fresh one
+    otherwise. Reusing a declared id is what makes a bridged room the same
+    room across a restart; minting one is what lets an operator run before
+    knowing what to declare.
+    """
+    let id =
+      match channel.room_id
+      | let declared: RoomId => declared
+      else
+        match MakeRoomId(_homeserver.server_name)
+        | let minted: RoomId => minted
+        else
+          receiver.declaration_refused(channel.channel)
+          return
+        end
+      end
+
+    let key: String = id.string()
+    if _rooms.contains(key) then
+      receiver.declaration_refused(channel.channel)
+      return
+    end
+
+    let alias: String = channel.alias.string()
+    if _aliases.contains(alias) then
+      receiver.declaration_refused(channel.channel)
+      return
+    end
+
+    let room = Room(id)
+    _rooms(key) = room
+    _aliases(alias) = key
+    _published(key) = room
+    room.declared(
+      creator,
+      CreateRoomRequest(channel.room_name, channel.alias, true),
+      channel,
+      receiver)
+
   be with_room(room_id: String, receiver: RoomLookupReceiver tag) =>
     """
     Hand back the room a client named, or say there is none.

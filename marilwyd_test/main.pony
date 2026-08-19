@@ -167,6 +167,13 @@ actor Main is TestList
     test(_TestAWokenSyncCarriesNoState)
     test(_TestAccountDataReachesADevice)
     test(_TestAccountDataIsNotResent)
+    test(_TestBridgesAreRead)
+    test(_TestAMappingSubstitutes)
+    test(_TestAGhostIdIsAddressable)
+    test(_TestADeclaredRoomIdIsChecked)
+    test(_TestANetworkNameMustBeAddressable)
+    test(_TestADeclaredRoomIsPublishedAndAliased)
+    test(_TestADeclaredRoomKeepsItsDeclaredId)
     test(_TestAnAliasNamesItsServer)
     test(_TestAnAliasBeginsWithHash)
     test(_TestAnAliasIsBuiltAndReadBack)
@@ -648,6 +655,27 @@ primitive _CredentialsFixture
 
   fun apply(h: TestHelper): String => path()
 
+primitive _BridgesFixture
+  """
+  A bridge configuration for the tests that read one.
+  """
+  fun path(): String => "build/test-bridges.yaml"
+
+  fun body(): String =>
+    "networks:\n"
+      + "  - name: testnet\n"
+      + "    host: irc.example.test\n"
+      + "    port: 6697\n"
+      + "    tls: true\n"
+      + "    nicks:\n"
+      + "      - marilwyd\n"
+      + "    channels:\n"
+      + "      - channel: \"#norrath\"\n"
+      + "        room_name: \"norrath\"\n"
+      + "mapping:\n"
+      + "  to_irc: \"{localpart}[marilwyd]\"\n"
+      + "  to_matrix: \"irc_{network}_{nick}\"\n"
+
 primitive _WriteFixtures
   """
   Build every fixture the suite reads, once, before any test starts.
@@ -687,6 +715,15 @@ primitive _WriteFixtures
       owner_only.any_read = false
       path.chmod(owner_only)
     end
+
+    let bridges_path = FilePath(auth, _BridgesFixture.path())
+    _write(bridges_path, _BridgesFixture.body())
+    // `_ReadBridgesFile` refuses a file others can read, for the same
+    // reason the credentials file is refused: it holds room ids.
+    let bridges_mode: FileMode ref = FileMode
+    bridges_mode.group_read = false
+    bridges_mode.any_read = false
+    bridges_path.chmod(bridges_mode)
 
   fun _write(path: FilePath, body: String) =>
     File(path) .> set_length(0) .> write(body) .> dispose()

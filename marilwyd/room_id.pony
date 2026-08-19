@@ -50,3 +50,51 @@ primitive MakeRoomId
     else
       NoSecureRandom
     end
+
+primitive RoomIds
+  """
+  Read a room id an operator declared, or say it is not one.
+
+  Only the shape marilwyd itself mints — `!` then 32 hex characters, then
+  this server's name. Narrower than Matrix allows, and deliberately: a
+  declared id that this server could not have produced names a room that
+  cannot exist here, and accepting it would mean a room whose id nothing
+  else in the process agrees with.
+  """
+  fun apply(text: String, server_name: String): (RoomId | None) =>
+    """
+    The room id this text names, or `None` when it names none.
+    """
+    let colon =
+      try
+        text.find(":")?
+      else
+        return None
+      end
+
+    let named: String = text.substring(colon + 1)
+    if named != server_name then
+      return None
+    end
+
+    let opaque: String = text.substring(1, colon)
+    try
+      if text(0)? != '!' then
+        return None
+      end
+    else
+      return None
+    end
+
+    if opaque.size() != 32 then
+      return None
+    end
+    for c in opaque.values() do
+      let hex =
+        ((c >= '0') and (c <= '9')) or ((c >= 'a') and (c <= 'f'))
+      if not hex then
+        return None
+      end
+    end
+
+    RoomId._create(text.clone())
