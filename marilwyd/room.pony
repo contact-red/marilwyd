@@ -156,7 +156,7 @@ actor Room
     end
     _bridge = channel
     _network = network
-    receiver.room_declared(channel, _state.id, this)
+    receiver.channel_declared(channel, network)
 
   be join(
     user_id: String,

@@ -416,21 +416,23 @@ commands to a server.
 
 `--bridges` is read under the same posture as the credentials file:
 refused if anyone but its owner can read it, and refused inside
-`--asset-root`. Not for what it holds today — the test network wants no
-password — but because it may hold declared room ids, and a room id is the
-entire access control on a room.
+`--asset-root`. Nothing in it is secret — it names a public network and a
+public channel — but it decides which traffic leaves this server for a
+network marilwyd does not control, and that is worth the same care.
 
-A declared room is published, so every account on this server can find it
-and join it. That is what declaring one is for, and it is the same thing
-the alias implies. Do not declare a channel you would not put in the
-public directory.
+A declared channel is advertised in the directory, so every account on
+this server can find it and enter it. Entering one opens a connection to
+that network under that person's own nickname, so declaring a channel is
+deciding that everyone with an account here may appear on it. Do not
+declare a channel you would not put in the public directory.
+
+**A room is per person, and that is a privacy property as much as a
+correctness one.** Each Matrix user's room holds what their own connection
+heard — from the moment it joined — so entering a channel shows nobody
+else's history, and leaving takes the connection with it.
 
 Errors from reading the file name the file and the index — `networks[0]
-channels[0]` — and never the value that was wrong, because the value may
-be a room id. The minted id is printed once to stdout, deliberately and
-only there: it is what an operator pastes back into the file to make the
-room survive a restart, and `--log-requests` is the one place it must not
-go.
+channels[0]` — and never the value that was wrong.
 
 ## Deployment shape
 

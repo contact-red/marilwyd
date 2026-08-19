@@ -21,7 +21,4 @@ actor _IgnoreDeclaration is DeclaredRoomReceiver
   be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
     None
 
-  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    None
-
   be declaration_refused(channel: String) => None

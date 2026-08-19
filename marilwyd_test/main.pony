@@ -213,7 +213,6 @@ actor Main is TestList
     test(_TestBridgesAreRead)
     test(_TestAMappingSubstitutes)
     test(_TestAGhostIdIsAddressable)
-    test(_TestADeclaredRoomIdIsChecked)
     test(_TestANetworkNameMustBeAddressable)
     test(_TestADeclaredChannelIsAdvertised)
     test(_TestEachUserGetsTheirOwnRoom)

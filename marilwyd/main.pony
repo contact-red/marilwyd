@@ -135,19 +135,6 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
     _env.out.print(
       "marilwyd: " + channel.channel + " is " + channel.alias.string())
 
-  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    """
-    Printed rather than logged, and printed once.
-
-    An operator who pastes this back into `--bridges` gets a room whose id
-    survives a restart as well as its alias. It goes to stdout and never to
-    the request log: a room id is the entire access control on a room, and
-    `SECURITY.md` says not to put one where logs are kept.
-    """
-    _env.out.print(
-      "marilwyd: " + channel.channel + " is " + channel.alias.string()
-        + " " + id.string())
-
   be declaration_refused(channel: String) =>
     _env.err.print(
       "marilwyd: could not declare a room for " + channel

@@ -58,61 +58,6 @@ class \nodoc\ iso _TestAGhostIdIsAddressable is UnitTest
     | let why: String => h.fail("a mapped nick is not addressable: " + why)
     end
 
-class \nodoc\ iso _TestADeclaredRoomIdIsChecked is UnitTest
-  """
-  Only the shape marilwyd itself mints. An id this server could not have
-  produced names a room that cannot exist here.
-  """
-  fun name(): String => "bridges/a declared room id must be one of ours"
-
-  fun apply(h: TestHelper) =>
-    let good = "!0123456789abcdef0123456789abcdef:example.test"
-    match RoomIds(good, "example.test")
-    | let id: RoomId => h.assert_eq[String](good, id.string())
-    else
-      h.fail("a well-formed id was refused")
-    end
-
-    // Too short, not hex, another server, and no bang.
-    for bad in
-      [ "!0123:example.test"
-        "!0123456789abcdefg123456789abcdef:example.test"
-        "!0123456789abcdef0123456789abcdef:elsewhere.test"
-        "?0123456789abcdef0123456789abcdef:example.test" ].values()
-    do
-      match RoomIds(bad, "example.test")
-      | let id: RoomId => h.fail("accepted " + bad)
-      end
-    end
-
-primitive \nodoc\ _TestNetwork
-  """
-  A network for tests that declare a room without connecting to one.
-  """
-  fun apply(): BridgedNetwork =>
-    BridgedNetwork(
-      "testnet",
-      "irc.example.test",
-      "6697",
-      true,
-      recover val ["marilwyd"] end,
-      recover val Array[BridgedChannel] end)
-
-primitive \nodoc\ _ReadFixture
-  fun apply(h: TestHelper): (Bridges | StartupError) =>
-    let auth = FileAuth(h.env.root)
-    let caps =
-      recover val
-        FileCaps .> set(FileLookup) .> set(FileRead) .> set(FileStat)
-      end
-    try
-      ReadBridges(
-        FilePath(auth, _BridgesFixture.path(), caps).canonical()?,
-        "example.test")
-    else
-      StartupError("fixture", "the bridges fixture is missing")
-    end
-
 class \nodoc\ iso _TestANetworkNameMustBeAddressable is UnitTest
   """
   A network's name goes into every ghost user id it produces, so a name
@@ -169,7 +114,7 @@ class \nodoc\ iso _TestADeclaredChannelIsAdvertised is UnitTest
       MakeHomeserver.http("example.test"))
     | (let alias: RoomAlias, let hs: Homeserver) =>
       _DeclareThenLook(
-        h, BridgedChannel("#norrath", "norrath", alias, None), hs)
+        h, BridgedChannel("#norrath", "norrath", alias), hs)
     else
       h.fail("could not build the fixture")
     end
@@ -225,7 +170,7 @@ class \nodoc\ iso _TestEachUserGetsTheirOwnRoom is UnitTest
       MakeHomeserver.http("example.test"))
     | (let alias: RoomAlias, let hs: Homeserver) =>
       _TwoUsersOneChannel(
-        h, BridgedChannel("#norrath", "norrath", alias, None), hs)
+        h, BridgedChannel("#norrath", "norrath", alias), hs)
     else
       h.fail("could not build the fixture")
     end
@@ -286,7 +231,7 @@ class \nodoc\ iso _TestTheSamePersonKeepsTheirRoom is UnitTest
       MakeHomeserver.http("example.test"))
     | (let alias: RoomAlias, let hs: Homeserver) =>
       _OneUserTwice(
-        h, BridgedChannel("#norrath", "norrath", alias, None), hs)
+        h, BridgedChannel("#norrath", "norrath", alias), hs)
     else
       h.fail("could not build the fixture")
     end
@@ -332,4 +277,32 @@ actor \nodoc\ _OneUserTwice is
       _first = id.string()
       _rooms.for_user(
         _alias, "@alice:example.test", "@bridge:example.test", this)
+    end
+
+primitive \nodoc\ _TestNetwork
+  """
+  A network for tests that declare a channel without connecting to one.
+  """
+  fun apply(): BridgedNetwork =>
+    BridgedNetwork(
+      "testnet",
+      "irc.example.test",
+      "6697",
+      true,
+      recover val ["marilwyd"] end,
+      recover val Array[BridgedChannel] end)
+
+primitive \nodoc\ _ReadFixture
+  fun apply(h: TestHelper): (Bridges | StartupError) =>
+    let auth = FileAuth(h.env.root)
+    let caps =
+      recover val
+        FileCaps .> set(FileLookup) .> set(FileRead) .> set(FileStat)
+      end
+    try
+      ReadBridges(
+        FilePath(auth, _BridgesFixture.path(), caps).canonical()?,
+        "example.test")
+    else
+      StartupError("fixture", "the bridges fixture is missing")
     end
