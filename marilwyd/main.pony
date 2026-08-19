@@ -125,6 +125,16 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
       env.exitcode(1)
     end
 
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
+    """
+    Printed so an operator can see what was declared and under what name.
+
+    No room id, because there is no room: a bridged channel is something
+    people get their own room for, and the alias is the handle they use.
+    """
+    _env.out.print(
+      "marilwyd: " + channel.channel + " is " + channel.alias.string())
+
   be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
     """
     Printed rather than logged, and printed once.

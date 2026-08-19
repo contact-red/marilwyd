@@ -67,7 +67,9 @@ class \nodoc\ iso _TestASummaryRendersWhatADirectoryShows is UnitTest
   fun apply(h: TestHelper) =>
     try
       let rendered =
-        RoomSummary(_AnyRoomId()?, "Pony", "#pony:example.test", 3).render()
+        RoomSummary(
+          _AnyRoomId()?.string(), "Pony", "#pony:example.test", 3)
+          .render()
       h.assert_true(rendered.contains("\"name\":\"Pony\""), rendered)
       h.assert_true(
         rendered.contains("\"canonical_alias\":\"#pony:example.test\""),
@@ -88,7 +90,8 @@ class \nodoc\ iso _TestASummaryOmitsWhatARoomLacks is UnitTest
 
   fun apply(h: TestHelper) =>
     try
-      let rendered = RoomSummary(_AnyRoomId()?, None, None, 1).render()
+      let rendered =
+        RoomSummary(_AnyRoomId()?.string(), None, None, 1).render()
       h.assert_false(rendered.contains("name"), rendered)
       h.assert_false(rendered.contains("canonical_alias"), rendered)
       h.assert_true(rendered.contains("\"num_joined_members\":1"), rendered)

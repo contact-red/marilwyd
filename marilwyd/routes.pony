@@ -113,10 +113,10 @@ primitive Routes
       .> post("/_matrix/client/v3/publicRooms", _PublicRooms(sessions, rooms))
       .> post(
         "/_matrix/client/v3/join/:roomIdOrAlias",
-        _JoinRoom(sessions, rooms, links))
+        _JoinRoom(sessions, rooms, links, hs))
       .> post(
         "/_matrix/client/v3/rooms/:roomId/leave",
-        _LeaveRoom(sessions, rooms, links))
+        _LeaveRoom(sessions, rooms, links, hs))
       .> put(
         "/_matrix/client/v3/rooms/:roomId/send/:eventType/:txnId",
         _SendEvent(sessions, rooms))

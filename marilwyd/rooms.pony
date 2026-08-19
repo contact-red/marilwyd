@@ -270,20 +270,24 @@ class val _JoinRoom
   let _sessions: SessionRegistry tag
   let _rooms: RoomDirectory tag
   let _links: LinkDirectory tag
+  let _homeserver: Homeserver
 
   new val create(
     sessions: SessionRegistry tag,
     rooms: RoomDirectory tag,
-    links: LinkDirectory tag)
+    links: LinkDirectory tag,
+    homeserver: Homeserver)
   =>
     _sessions = sessions
     _rooms = rooms
     _links = links
+    _homeserver = homeserver
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _MembershipHandler(consume ctx, _sessions, _rooms, _links, true)
+    _MembershipHandler(
+      consume ctx, _sessions, _rooms, _links, _homeserver, true)
 
 class val _LeaveRoom
   """
@@ -296,24 +300,29 @@ class val _LeaveRoom
   let _sessions: SessionRegistry tag
   let _rooms: RoomDirectory tag
   let _links: LinkDirectory tag
+  let _homeserver: Homeserver
 
   new val create(
     sessions: SessionRegistry tag,
     rooms: RoomDirectory tag,
-    links: LinkDirectory tag)
+    links: LinkDirectory tag,
+    homeserver: Homeserver)
   =>
     _sessions = sessions
     _rooms = rooms
     _links = links
+    _homeserver = homeserver
 
   fun apply(ctx: hobby.HandlerContext iso)
     : (hobby.HandlerReceiver tag | None)
   =>
-    _MembershipHandler(consume ctx, _sessions, _rooms, _links, false)
+    _MembershipHandler(
+      consume ctx, _sessions, _rooms, _links, _homeserver, false)
 
 actor _MembershipHandler is
   (hobby.HandlerReceiver & UserReceiver & RoomLookupReceiver
-    & MembershipReceiver & BridgeReceiver & JoinReceiver)
+    & MembershipReceiver & BridgeReceiver & JoinReceiver
+    & BridgedRoomReceiver)
   """
   Joining and leaving, which differ only in which behaviour they call —
   except that joining a bridged room is not marilwyd's business alone.
@@ -327,6 +336,7 @@ actor _MembershipHandler is
   embed _handler: hobby.RequestHandler
   let _rooms: RoomDirectory tag
   let _links: LinkDirectory tag
+  let _homeserver: Homeserver
   let _params: Map[String, String] val
   let _joining: Bool
   var _session: (Session | None) = None
@@ -337,6 +347,7 @@ actor _MembershipHandler is
     sessions: SessionRegistry tag,
     rooms: RoomDirectory tag,
     links: LinkDirectory tag,
+    homeserver: Homeserver,
     joining: Bool)
   =>
     let supplied = _BearerToken(ctx.request)
@@ -347,6 +358,7 @@ actor _MembershipHandler is
     _joining = joining
     _rooms = rooms
     _links = links
+    _homeserver = homeserver
     _handler = hobby.RequestHandler(consume ctx)
 
     match supplied
@@ -359,8 +371,35 @@ actor _MembershipHandler is
     _session = session
     let named = if _joining then "roomIdOrAlias" else "roomId" end
     match \exhaustive\ _PathParam(_params, named)
-    | let id: String => _rooms.with_room(id, this)
+    | let id: String =>
+      // A bridged channel's alias names a different room for every person
+      // who enters it, so it is asked about before the room table: a room
+      // id names one room, and this may name a channel instead.
+      if _joining then
+        _rooms.for_user(
+          id, session.user_id, _homeserver.user_id("bridge"), this)
+      else
+        _rooms.with_room(id, this)
+      end
     else
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError("M_INVALID_PARAM", "That is not a room identifier"))
+    end
+
+  be bridged_room(room: Room tag, network: BridgedNetwork) =>
+    """
+    This person's own room for the channel they named. Entering it means
+    a connection, which is what `room_is_bridged` goes on to open.
+    """
+    _room = room
+    room.bridged(this)
+
+  be no_such_channel() =>
+    // Not a channel, so it may still be an ordinary room id or alias.
+    match \exhaustive\ _PathParam(_params, "roomIdOrAlias")
+    | let id: String => _rooms.with_room(id, this)
+    | None =>
       _respond(
         stallion.StatusBadRequest,
         MatrixError("M_INVALID_PARAM", "That is not a room identifier"))

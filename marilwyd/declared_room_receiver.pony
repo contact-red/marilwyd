@@ -2,6 +2,12 @@ interface tag DeclaredRoomReceiver
   """
   Something waiting to be told about a room declared in the configuration.
   """
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork)
+    """
+    A channel was declared. No room exists for it yet — one is made for
+    each person who enters it.
+    """
+
   be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag)
     """
     The room exists, is published, and answers to its alias.

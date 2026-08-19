@@ -264,7 +264,7 @@ actor Room
     """
     receiver.room_summarised(
       RoomSummary(
-        _state.id,
+        _state.id.string(),
         _NameIn(_state.content_of("m.room.name")),
         _NameIn(_state.content_of("m.room.canonical_alias"), "alias"),
         _state.size()))
@@ -351,6 +351,16 @@ actor Room
     if _state.is_member(user_id) then
       _carrying(user_id.clone()) = link
     end
+
+  be identify(receiver: RoomIdReceiver tag) =>
+    """
+    Say which room this is.
+
+    Needed because a bridged channel's alias resolves to a room actor
+    before anyone knows its id — the directory hands back the room, and
+    the id is the room's to give.
+    """
+    receiver.room_identified(_state.id)
 
   be bridged(receiver: BridgeReceiver tag) =>
     """

@@ -230,6 +230,16 @@ actor UserLink is (irc.IRCNotify & RoomMember)
 
     match m.nick()
     | let who: irc.Nick =>
+      // Only this connection's own nickname. Another marilwyd user is a
+      // participant on the channel like anyone else, and their words
+      // reach this room as their ghost — which is what a person on IRC
+      // sees of somebody using a different client.
+      //
+      // An earlier version skipped every nickname the mapping could have
+      // produced. That belonged to a design where one room had several
+      // connections and each heard the others; with a room per person
+      // there is no such duplication, and the wider filter silently
+      // dropped every message from another Matrix user.
       if settled.same(who, settled.me()) then
         return
       end
