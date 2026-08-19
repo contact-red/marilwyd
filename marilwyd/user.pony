@@ -287,6 +287,17 @@ actor User
       device.forget_room(room_id)
     end
 
+  be ephemeral(room_id: String, current: Ephemeral) =>
+    """
+    Hand one room's ephemeral state to every device of this account.
+
+    One value, however many devices: `Ephemeral` is `val`, so this shares
+    rather than copies — the same reason `deliver` does.
+    """
+    for device in _devices.values() do
+      device.ephemeral(room_id, current)
+    end
+
   be deliver(event: RoomEvent) =>
     """
     Hand an event to every device signed in to this account.

@@ -19,6 +19,12 @@ actor Room
   let _state: RoomState
   embed _members: Map[String, User tag] = _members.create()
   var _position: USize = 0
+  // Read positions and who is typing. Not in `RoomState`, which is what a
+  // room *is* — these are what it is doing at one moment, they are never
+  // events in its timeline, and nothing about them is kept when the
+  // process ends.
+  embed _receipts: Map[String, Receipt] = _receipts.create()
+  embed _typing: Map[String, Bool] = _typing.create()
 
   new create(id': RoomId) =>
     _state = RoomState(id')
@@ -215,6 +221,75 @@ actor Room
         _NameIn(_state.content_of("m.room.name")),
         _NameIn(_state.content_of("m.room.canonical_alias"), "alias"),
         _state.size()))
+
+  be read_up_to(user_id: String, event_id: String) =>
+    """
+    Record how far somebody has read, and tell the room.
+
+    Last write wins per person: a read position is where they are now, not
+    a history of where they have been. A receipt for an event this room
+    never sent is stored anyway — marilwyd keeps no messages, so it cannot
+    tell one from an event it has forgotten, and refusing would break a
+    client that read something before a restart.
+    """
+    if not _state.is_member(user_id) then
+      return
+    end
+    (let sec: I64, let nsec: I64) = Time.now()
+    _receipts(user_id.clone()) =
+      Receipt(
+        user_id.clone(),
+        event_id.clone(),
+        (sec * 1000) + (nsec / 1_000_000))
+    _publish()
+
+  be typing(user_id: String, active: Bool) =>
+    """
+    Record whether somebody is typing, and tell the room.
+
+    Bounded, and dropped rather than refused past the bound: a notice
+    naming more people than anyone reads is worth less than the room
+    continuing to deliver. Nothing here expires — a client says when it
+    stops, and one that vanishes mid-sentence leaves its name until it
+    comes back or the process ends.
+    """
+    if not _state.is_member(user_id) then
+      return
+    end
+    if active then
+      if (_typing.size() < MaxTypists()) or _typing.contains(user_id) then
+        _typing(user_id.clone()) = true
+      end
+    else
+      try
+        (_, _) = _typing.remove(user_id)?
+      end
+    end
+    _publish()
+
+  fun ref _publish() =>
+    """
+    Hand every member's devices the room's current ephemeral state.
+
+    The whole of it each time rather than what changed: it is small,
+    last-write-wins, and a client that missed one has missed nothing the
+    next does not carry. Sending a delta would need a per-device position
+    for something that has no history.
+    """
+    let receipts = recover iso Array[Receipt] end
+    for receipt in _receipts.values() do
+      receipts.push(receipt)
+    end
+    let active = recover iso Array[String] end
+    for who in _typing.keys() do
+      active.push(who)
+    end
+
+    let current = Ephemeral(consume receipts, consume active)
+    let id: String = _state.id.string()
+    for user in _members.values() do
+      user.ephemeral(id, current)
+    end
 
   be members(user_id: String, receiver: StateReceiver tag) =>
     """

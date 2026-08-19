@@ -7,7 +7,7 @@ web client — one origin, one process.
 
 **Element signs in and reaches the app.** A local user logs in, the client
 settles into a real sync loop instead of retrying, finishes setting up
-encryption keys, and renders the room list. Thirty-one Matrix endpoints,
+encryption keys, and renders the room list. Thirty-four Matrix endpoints,
 listed below.
 
 One account can be signed in from several clients at once — a browser, a
@@ -209,6 +209,9 @@ public.
 | GET | `/_matrix/client/v3/rooms/:roomId/state` | a room's current state |
 | GET | `/_matrix/client/v3/rooms/:roomId/members` | who is in a room |
 | GET | `/_matrix/client/v3/profile/:userId` | a display name |
+| POST | `.../rooms/:roomId/receipt/:type/:eventId` | read this far |
+| POST | `/_matrix/client/v3/rooms/:roomId/read_markers` | the same |
+| PUT | `/_matrix/client/v3/rooms/:roomId/typing/:userId` | who is typing |
 | GET | `/_matrix/client/v3/pushrules/` | an empty ruleset |
 | POST | `/_matrix/client/v3/user/:userId/filter` | a constant `filter_id` |
 | GET | `/_matrix/client/v3/user/:userId/filter/:filterId` | an empty filter |

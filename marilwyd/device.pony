@@ -30,6 +30,12 @@ actor Device
   // joined. Without it, state travelled on a fresh sync alone and joining
   // a room mid-session produced one with no name and no members.
   embed _described: Map[String, USize] = _described.create()
+  // A room's ephemeral state, and the position it last changed at. Kept
+  // per room and stamped like everything else a client needs to know
+  // about, so a sync carries only the rooms whose state moved since the
+  // client's position.
+  embed _ephemeral: Map[String, Ephemeral] = _ephemeral.create()
+  embed _ephemeral_at: Map[String, USize] = _ephemeral_at.create()
   var _account: Array[AccountDatum] val =
     recover val Array[AccountDatum] end
   var _account_at: USize = 0
@@ -159,6 +165,19 @@ actor Device
     _described(key) = _position
     _wake()
 
+  be ephemeral(room_id: String, current: Ephemeral) =>
+    """
+    Take one room's ephemeral state — who has read how far, who is typing.
+
+    Replaced wholesale rather than merged, because that is what it is: the
+    room's current answer, last write wins, with no history to reconcile.
+    """
+    let key: String = room_id.clone()
+    _ephemeral(key) = current
+    _position = _position + 1
+    _ephemeral_at(key) = _position
+    _wake()
+
   be forget_room(room_id: String) =>
     """
     Drop a room this device's account has left.
@@ -173,6 +192,12 @@ actor Device
     end
     try
       (_, _) = _described.remove(room_id)?
+    end
+    try
+      (_, _) = _ephemeral.remove(room_id)?
+    end
+    try
+      (_, _) = _ephemeral_at.remove(room_id)?
     end
 
   be account_data(data: Array[AccountDatum] val) =>
@@ -201,6 +226,7 @@ actor Device
     if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0)
       or (since is None) or _account_unseen(since)
       or (_describing(since).size() > 0)
+      or (_ephemeral_since(since).size() > 0)
     then
       _answer(receiver, since)
     else
@@ -323,6 +349,32 @@ actor Device
     end
     consume merged
 
+  fun _ephemeral_since(since: (USize | None))
+    : Array[(String, Ephemeral)] val
+  =>
+    """
+    Each room whose ephemeral state changed after the client's position.
+
+    A room whose receipts and typing are both empty is left out even when
+    it changed: an empty block says nothing a client did not already
+    believe, and the one case that matters — the last person stopping
+    typing — is a change from a non-empty state, which the client is told
+    about because the state it has is not empty.
+    """
+    let found = recover iso Array[(String, Ephemeral)] end
+    for (room_id, current) in _ephemeral.pairs() do
+      let unseen =
+        match since
+        | let given: USize => _ephemeral_at.get_or_else(room_id, 0) > given
+        else
+          true
+        end
+      if unseen and (current.size() > 0) then
+        found.push((room_id, current))
+      end
+    end
+    consume found
+
   fun _describing(since: (USize | None)): Array[RoomEvent] val =>
     """
     The state of every room this client has not been told about yet.
@@ -387,4 +439,5 @@ actor Device
         state',
         account,
         _to_device_since(since),
+        _ephemeral_since(since),
         (_pending.dropped() + _to_device_dropped()) > 0))

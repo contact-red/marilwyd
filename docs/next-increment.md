@@ -89,11 +89,10 @@ storming.
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | no dehydration |
 | GET | `unstable/org.matrix.msc4143/rtc/transports` | no element call |
 
-What a client in a room asks for and does not get, from a real session:
-`POST /rooms/{roomId}/receipt/m.read/{eventId}` and `/read_markers`, both
-retried on a loop, and `PUT /rooms/{roomId}/typing/{userId}`. All three are
-the same shape — store a thing per room and echo it back through `/sync` —
-so they are one increment rather than three.
+`m.fully_read` is the one part of that group still dropped. It is a private
+per-room marker — the line Element draws for unread messages — and it needs
+room-scoped account data, which marilwyd has none of. The receipt beside it
+in the same request is kept, which is what stopped the retry loop.
 
 ## What was measured, so it need not be measured again
 
