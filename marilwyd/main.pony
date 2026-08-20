@@ -5,6 +5,20 @@ use irc = "irc"
 use lori = "lori"
 use stallion = "stallion"
 
+primitive MaxRequestBody
+  """
+  The largest request body marilwyd's transport will accept at all.
+
+  The ceiling every per-endpoint limit sits under. A limit above this one
+  cannot fire: the body is refused by stallion before routing, as a
+  bodiless `413` with no `errcode`, which is the unreadable answer a typed
+  per-endpoint refusal exists to give instead.
+
+  Named rather than written into `ServerLimits`, so that a limit somewhere
+  else can be read against it.
+  """
+  fun apply(): USize => 65_536
+
 primitive ServerLimits
   """
   The parser limits marilwyd runs under, stated rather than inherited.
@@ -12,26 +26,31 @@ primitive ServerLimits
   Public so the test harness boots the same server the binary does: a
   limit the suite cannot reach is a limit the suite cannot check.
 
-  Only `max_body_size` differs from the defaults, at 64 kB against 1 MB.
-  Every body marilwyd reads is a small JSON document — the largest is a
-  login — and a held `/sync` pins its request body for the whole wait, so
-  the limit bounds resident memory and not just peak parse cost.
+  Only `max_body_size` differs from the defaults, at `MaxRequestBody()`
+  against 1 MB. Every body marilwyd reads is a small JSON document, and a
+  held `/sync` pins its request body for the whole wait, so the limit
+  bounds resident memory and not just peak parse cost.
 
   A body over the limit is refused by stallion's parser, before routing, as
   a bodiless `413` carrying no `errcode`. That is the same unreadable
   answer the four-method catch-all exists to prevent, so lowering the limit
   makes it reachable sooner rather than later; 64 kB is chosen to sit above
   every body marilwyd reads today while bounding the login parser's
-  allocation, which `SECURITY.md` measures. Media upload will need this
-  revisited, and Matrix's own event ceiling is 65,536 bytes, so there is no
-  headroom above a single maximal event.
+  allocation, which `SECURITY.md` measures. Every per-endpoint limit sits
+  under it, because one above it can never fire — `MaxKeysBody` and
+  `MaxToDeviceBody` both did, at two and four times the cap. Media upload
+  will need this revisited, and Matrix's own event ceiling is 65,536
+  bytes, so there is no headroom above a single maximal event.
 
   The host and port here are ignored by hobby — it binds from its own
   parameters — and are passed as the real ones so this cannot be misread
   as a second, conflicting address.
   """
   fun apply(host: String, port: String): stallion.ServerConfig =>
-    stallion.ServerConfig(host, port where max_body_size' = 65_536)
+    stallion.ServerConfig(
+      host,
+      port
+      where max_body_size' = MaxRequestBody())
 
 actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
   """

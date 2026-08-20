@@ -17,10 +17,14 @@ primitive MaxToDeviceBody
   """
   The largest `sendToDevice` request marilwyd will read.
 
-  One request may name many devices, so this is above `MaxKeysBody()`
-  rather than equal to it.
+  Equal to `MaxKeysBody()`, which it did not used to be: one request may
+  name many devices, so it was set four times higher. Both were above
+  `MaxRequestBody()`, so neither could fire and the difference between
+  them decided nothing. Under a 64 kB transport cap there is no room for
+  a meaningful difference, and a number that pretends otherwise reads as
+  a decision that was made.
   """
-  fun apply(): USize => 262_144
+  fun apply(): USize => 49_152
 
 primitive AllDevices
   """

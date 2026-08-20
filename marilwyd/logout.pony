@@ -172,7 +172,7 @@ primitive _DeviceNames
   """
   fun apply(body: Array[U8] val): (Array[String] val | None) =>
     let parsed =
-      match JsonParser.parse(String.from_array(body))
+      match _ObjectBody(body, MaxDeviceNamesBody())
       | let o: JsonObject => o
       else
         return None
@@ -196,3 +196,13 @@ primitive _DeviceNames
       end
       names
     end
+
+primitive MaxDeviceNamesBody
+  """
+  The largest `delete_devices` request marilwyd will read.
+
+  A list of device ids and nothing else. It had no bound at all — neither
+  size nor depth — which made it the cheapest unbounded parse behind a
+  token in the server.
+  """
+  fun apply(): USize => 8192

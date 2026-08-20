@@ -5,11 +5,15 @@ primitive MaxKeysBody
   The largest key upload marilwyd will read.
 
   A real upload from Element 1.12.25 is 12,698 bytes — one device key object
-  and fifty one-time keys. This is an order of magnitude above that, which
-  leaves room for a client that batches differently without leaving the body
-  unbounded.
+  and fifty one-time keys. This leaves room for a client that batches
+  differently without leaving the body unbounded.
+
+  Under `MaxRequestBody()`, and that is the whole constraint on the
+  number. It was 131,072 — twice the transport cap — so it could never
+  fire: stallion refused the body first, as the bodiless `413` carrying no
+  `errcode` that a per-endpoint limit exists to answer instead of.
   """
-  fun apply(): USize => 131_072
+  fun apply(): USize => 49_152
 
 primitive MaxOneTimeKeys
   """
@@ -72,10 +76,7 @@ primitive _KeysBody
   larger than an event.
   """
   fun apply(body: Array[U8] val): (JsonObject | MalformedKeys) =>
-    if body.size() > MaxKeysBody() then
-      return MalformedKeys
-    end
-    match JsonParser.parse(String.from_array(body))
+    match _ObjectBody(body, MaxKeysBody())
     | let o: JsonObject => o
     else
       MalformedKeys
