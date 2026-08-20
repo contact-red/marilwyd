@@ -437,7 +437,7 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
   let _settled: irc.Registration val
   var _forgotten: Bool = false
   var _parted: Bool = false
-  var _returned: Bool = false
+  var _step: USize = 0
 
   new create(h: TestHelper, given: _LinkFixture, which: _LifecycleCase) =>
     _h = h
@@ -468,46 +468,61 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
     _link.irc_registered(this, _settled)
     _feed(":alice[marilwyd]!u@h JOIN #pony")
 
-    // Nothing is asserted straight after telling the link. The link and
-    // this actor are two senders talking to one room, and nothing orders
-    // them: asking the room before the link's message has arrived asks it
-    // about a state it has not reached. Each case below waits for a
-    // signal that is causally after the message it cares about — the
-    // link's own log line, or its report to its owner.
+    // The first step. Everything after it is driven from `print`, one
+    // step per line the link writes — see that behaviour for why.
     match \exhaustive\ _which
-    | _DropsThenSends => _link.dropped("connection reset")
-    | _DropsThenReturns =>
-      _link.dropped("connection reset")
-      // The library reconnects and registers again, which is why the
-      // channel is joined from `irc_registered` rather than once.
-      _link.irc_registered(this, _settled)
-      _feed(":alice[marilwyd]!u@h JOIN #pony")
     | _DiesForGood => _link.died("the network refused to have us")
+    else
+      None
     end
 
   be print(data: ByteSeq) =>
     """
-    The link's own log line, which it writes after telling the room. That
-    ordering is what makes the question below answerable: this message is
-    causally after the room was told, so anything sent from here now
-    reaches the room after it too.
+    One step of the test per line the link writes.
+
+    Nothing may be asserted straight after telling the link something.
+    The link and this actor are two senders talking to one room, and
+    nothing orders them: asking the room before the link's message has
+    arrived asks it about a state it has not reached. Each line the link
+    writes, though, is written *after* it has told the room — so a
+    message sent from here on receiving one reaches the room after it.
+
+    A counter and not a guess at how many lines there will be. An earlier
+    version of this test assumed the first line it saw was the drop's; the
+    channel had already been entered by then, which also writes one, so
+    every step was one behind and the two tests raced their own
+    assertions. They passed anyway, often enough to be committed.
     """
-    match _which
+    _step = _step + 1
+    match \exhaustive\ _which
     | _DropsThenSends =>
-      _room.send(
-        "@alice:example.test",
-        "m.room.message",
-        "{\"msgtype\":\"m.text\",\"body\":\"into the void\"}",
-        this)
+      // 1: entered the channel. 2: dropped.
+      if _step == 1 then
+        _link.dropped("connection reset")
+      elseif _step == 2 then
+        _room.send(
+          "@alice:example.test",
+          "m.room.message",
+          "{\"msgtype\":\"m.text\",\"body\":\"into the void\"}",
+          this)
+      end
     | _DropsThenReturns =>
-      if _returned then
+      // 1: entered. 2: dropped. 3: entered again after the reconnect,
+      // which is why the channel is joined from `irc_registered` rather
+      // than once at connect.
+      if _step == 1 then
+        _link.dropped("connection reset")
+      elseif _step == 2 then
+        _link.irc_registered(this, _settled)
+        _feed(":alice[marilwyd]!u@h JOIN #pony")
+      elseif _step == 3 then
         _room.send(
           "@alice:example.test",
           "m.room.message",
           "{\"msgtype\":\"m.text\",\"body\":\"back again\"}",
           this)
       end
-      _returned = true
+    | _DiesForGood => None
     end
 
   be write(data: ByteSeq) => None

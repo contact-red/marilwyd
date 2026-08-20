@@ -46,9 +46,12 @@ primitive CheckLoginShape
   Refuse a login body that is too large or too deeply nested, before the
   parser builds anything from it.
 
-  The depth half is `_JSONDeeperThan`, which every body-reading endpoint
-  now shares. The document is walked twice as a result, which costs
-  microseconds against a login's 380 ms key derivation.
+  The depth half is `_JSONDeeperThan`, which `_ObjectBody` applies to
+  every other body marilwyd reads. Login does not go through
+  `_ObjectBody`, because it is refused before anything is parsed at all
+  and answers its own two refusals rather than one. The document is walked
+  twice as a result, which costs microseconds against a login's 380 ms key
+  derivation.
 
   Malformed JSON is not this primitive's business — it answers `None` for
   anything that is merely unparseable and lets the tree parser produce the
@@ -67,4 +70,56 @@ primitive CheckLoginShape
 
     if _JSONDeeperThan(body, MaxLoginDepth()) then
       LoginBodyTooDeep
+    end
+
+primitive MaxBodyDepth
+  """
+  How deeply any request body may nest, whatever else bounds it.
+
+  A backstop rather than a per-endpoint rule: the endpoints that know
+  what shape they expect state something tighter — `MaxEventDepth` and
+  `MaxCreateDepth` are both eight — and this is what applies to the ones
+  that only know they are reading an object.
+
+  It exists because the byte bound is not the shape bound. Sixty-four
+  kilobytes of `[[[[` is a legal document a few characters wide and
+  thousands of levels deep, and it is the parser's recursion that costs,
+  not the length: `SECURITY.md` measures 9 MB of that shape reaching
+  200 MB resident on the one path that was checked.
+  """
+  fun apply(): USize => 16
+
+primitive _ObjectBody
+  """
+  Read a request body as a JSON object, bounded first.
+
+  The one place a body becomes an object, so that a new endpoint gets the
+  bounds by reading its body rather than by remembering to. They were
+  missed on eleven endpoints while a docstring said every one of them was
+  covered — which is the kind of claim that stops the next person
+  checking.
+
+  Size before depth before parse, in that order, because each is cheaper
+  than the next and the whole point is to refuse before the parser builds
+  anything.
+
+  Answers `None` for all three failures. A caller that wants to tell them
+  apart — as `_EventContent` does, which is why it does not use this —
+  has to, because a single message for several causes tells a client
+  nothing it can act on.
+  """
+  fun apply(
+    body: Array[U8] val,
+    max_bytes: USize,
+    max_depth: USize = MaxBodyDepth())
+    : (JsonObject | None)
+  =>
+    if body.size() > max_bytes then
+      return None
+    end
+    if _JSONDeeperThan(body, max_depth) then
+      return None
+    end
+    match JsonParser.parse(String.from_array(body))
+    | let o: JsonObject => o
     end
