@@ -272,6 +272,8 @@ actor Main is TestList
     test(_TestRoomMembershipComesAndGoes)
     test(_TestAClosedRoomRefusesAStranger)
     test(_TestAnInvitationLetsThemIn)
+    test(_TestARoomAskedToBeEncryptedIsEncrypted)
+    test(_TestAnOrdinaryRoomIsNotEncrypted)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
