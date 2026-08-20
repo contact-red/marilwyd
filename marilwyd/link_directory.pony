@@ -58,12 +58,12 @@ actor LinkDirectory
     // The nickname a Matrix user wears on IRC, and the fallbacks the
     // network walks when it is taken. `_` rather than a number because it
     // is what an IRC client does and what a person recognises.
-    let localpart: String = _Localpart(user_id)
+    let localpart: String = LocalpartOf(user_id)
     let wanted: String = _mapping.irc_nick(localpart)
     let nicks =
       recover val [wanted; wanted + "_"; wanted + "__"] end
 
-    match \exhaustive\ _Connect(_env, network, link where nicks' = nicks)
+    match \exhaustive\ Connect(_env, network, link where nicks' = nicks)
     | let opened: irc.IRC =>
       _links(key) = link
       // The room and this directory before the connection, so a line
@@ -112,10 +112,16 @@ actor LinkDirectory
   fun _key(user_id: String, network: String, channel: String): String =>
     user_id + " " + network + " " + channel
 
-primitive _Localpart
+primitive LocalpartOf
   """
-  The local part of a Matrix user id, which is what a nickname is made
-  from.
+  The local part of a full Matrix user id — the `alice` in
+  `@alice:example.org` — which is what an IRC nickname is made from.
+
+  Extraction, not validation. `Localpart` is the neighbouring primitive
+  that answers whether a local part is usable; this one takes an id apart
+  and answers with whatever was in it. An id with no colon is answered
+  whole, because the only thing that could be meant by one is the part
+  itself.
   """
   fun apply(user_id: String): String =>
     let colon =

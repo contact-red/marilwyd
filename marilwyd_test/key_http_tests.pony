@@ -215,3 +215,87 @@ class \nodoc\ iso _TestABackupNeedsAnAlgorithm is UnitTest
         h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
         _AssertErrcode(h, r, "M_INVALID_PARAM")
       } val)
+
+class \nodoc\ iso _TestAUserSigningKeyIsNotSharedAcrossAccounts is UnitTest
+  """
+  A user-signing key goes to its owner and to nobody else.
+
+  It is what an account uses to sign *other* people, so the specification
+  gives it to its owner alone, while the master and self-signing keys are
+  public by design — they are what everyone else encrypts to.
+
+  The whole distinction is one argument at one call site,
+  `user_id == _asking`, and nothing could reach it: the credentials
+  fixture held a single account, so no test could ask about somebody
+  else's keys. Passing `true` there — handing everyone everything — was a
+  green mutation.
+  """
+  fun name(): String => "keys/a user-signing key is not shared"
+
+  fun apply(h: TestHelper) =>
+    _ServeTwoAccounts(
+      h,
+      {(mine, theirs) =>
+        // The first account publishes all three keys. Without this the
+        // test passes however the rule behaves, because there is no
+        // user-signing key anywhere to withhold — which is exactly how
+        // the first version of this test passed with the rule removed.
+        _Post(
+          "/_matrix/client/v3/keys/device_signing/upload",
+          "{\"master_key\":{\"keys\":{\"ed25519:M\":\"m\"}},"
+            + "\"self_signing_key\":{\"keys\":{\"ed25519:S\":\"s\"}},"
+            + "\"user_signing_key\":{\"keys\":{\"ed25519:U\":\"u\"}}}",
+          "Authorization: Bearer " + mine + "\r\n")
+      } val,
+      {(mine, theirs) =>
+        // Now the second account asks about the first.
+        _Post(
+          "/_matrix/client/v3/keys/query",
+          "{\"device_keys\":{\"@" + _TestUser.localpart()
+            + ":example.test\":[]}}",
+          "Authorization: Bearer " + theirs + "\r\n")
+      } val,
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        // The keys that are public by design did arrive, so the assertion
+        // below is about *which* key is withheld and not about the answer
+        // being empty.
+        h.assert_true(
+          r.contains("master_keys"),
+          "a public key was withheld too: " + r)
+        h.assert_false(
+          r.contains("user_signing_key"),
+          "another account's user-signing key was handed out: " + r)
+      } val)
+
+class \nodoc\ iso _TestYourOwnUserSigningKeyComesBack is UnitTest
+  """
+  The other side of the same rule, so it is a rule and not a refusal of
+  everything.
+  """
+  fun name(): String => "keys/your own user-signing key comes back"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthedChain(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/keys/device_signing/upload",
+          "{\"master_key\":{\"keys\":{\"ed25519:M\":\"m\"}},"
+            + "\"self_signing_key\":{\"keys\":{\"ed25519:S\":\"s\"}},"
+            + "\"user_signing_key\":{\"keys\":{\"ed25519:U\":\"u\"}}}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(token, login, first) =>
+        _Post(
+          "/_matrix/client/v3/keys/query",
+          "{\"device_keys\":{\"@" + _TestUser.localpart()
+            + ":example.test\":[]}}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(
+          r.contains("user_signing_key"),
+          "an account was not given its own user-signing key: " + r)
+      } val)

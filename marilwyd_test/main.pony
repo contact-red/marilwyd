@@ -97,6 +97,8 @@ actor Main is TestList
     test(_TestKeyUploadWithoutATokenIsRefused)
     test(_TestKeyQueryWithoutATokenIsRefused)
     test(_TestKeyUploadAnswersACount)
+    test(_TestAUserSigningKeyIsNotSharedAcrossAccounts)
+    test(_TestYourOwnUserSigningKeyComesBack)
     test(_TestAQueryFindsAnUploadedKey)
     test(_TestAQueryAnswersAnUnknownAccount)
     test(_TestCrossSigningUploadIsAccepted)
@@ -219,6 +221,10 @@ actor Main is TestList
     test(_TestChannelMembershipIsMirrored)
     test(_TestActionsAndNoticesAreCarried)
     test(_TestCtcpPingIsAnswered)
+    test(_TestOnlyTextAndNoticeLeave)
+    test(_TestOnlyTheOwnersWordsGoOut)
+    test(_TestCtcpCommandsCompareWithoutCase)
+    test(_TestANicknameComesFromTheLocalpart)
     test(_TestATransientDropRefusesSends)
     test(_TestAReconnectAcceptsAgain)
     test(_TestATerminalDeathPartsAndIsForgotten)
@@ -618,6 +624,133 @@ primitive _ServeAuthedChain
       h.complete(false)
     end
 
+primitive _ServeTwoAccounts
+  """
+  Log two different accounts in against one server, then send one request
+  built from both their tokens.
+
+  Four connections against one listener. The chain harnesses log in once,
+  which is all a fixture holding one account could ever need — and that is
+  why every rule in marilwyd about *whose* something is went untested. A
+  handler could hand one account another's user-signing key, or sign a
+  device the account does not hold, and nothing in the suite could ask.
+
+  Both tokens have to come from the same process: a session lives in one
+  `SessionRegistry` and nothing survives a restart, so a token minted
+  against one server means nothing to another.
+
+  Five connections, because one request is never enough to ask a
+  cross-account question: something has to be *there* to be asked about
+  first. A test where the subject has published nothing passes whatever
+  the rule does, which is the shape this harness exists to make hard.
+
+  `setup` and `build` each receive the first account's token and the
+  second's, in that order. Only `build`'s response is checked.
+  """
+  fun apply(
+    h: TestHelper,
+    setup: {(String, String): String} val,
+    build: {(String, String): String} val,
+    check: {(String)} val)
+  =>
+    h.long_test(15_000_000_000)
+
+    let config =
+      match _TestConfig(h)
+      | let c: Config => c
+      else
+        return
+      end
+
+    let epoch =
+      match MakeStreamEpoch()
+      | let e: StreamEpoch => e
+      else
+        h.fail("the CSPRNG is unavailable")
+        h.complete(false)
+        return
+      end
+
+    match \exhaustive\ Routes(
+      config,
+      SessionRegistry(epoch),
+      RoomDirectory(config.homeserver),
+      LinkDirectory(
+        h.env, config.homeserver, NameMapping("{localpart}", "{nick}")),
+      epoch)
+    | let built: hobby.BuiltApplication =>
+      let connect_auth = lori.TCPConnectAuth(h.env.root)
+      let notify =
+        _TestNotify(
+          {(port, server)(connect_auth, setup, build, check, h) =>
+            _TestClient(
+              connect_auth,
+              port,
+              _Post(
+                "/_matrix/client/v3/login",
+                _PasswordLogin(_TestUser.password())),
+              server,
+              {(one)(connect_auth, port, setup, build, check, h, server) =>
+                match _TokenFrom(one)
+                | let mine: String =>
+                  _TestClient(
+                    connect_auth,
+                    port,
+                    _Post(
+                      "/_matrix/client/v3/login",
+                      _PasswordLogin(
+                        _OtherUser.password(), _OtherUser.localpart())),
+                    server,
+                    {(two)(connect_auth, port, setup, build, check, h,
+                      server, mine)
+                    =>
+                      match _TokenFrom(two)
+                      | let theirs: String =>
+                        _TestClient(
+                          connect_auth,
+                          port,
+                          setup(mine, theirs),
+                          server,
+                          {(ready)(connect_auth, port, build, check, h,
+                            server, mine, theirs)
+                          =>
+                            _TestClient(
+                              connect_auth,
+                              port,
+                              build(mine, theirs),
+                              server,
+                              {(answer)(check, h) =>
+                                check(answer); h.complete(true)
+                              } val)
+                          } val
+                          where close_server = false)
+                      else
+                        h.fail("the second account could not log in: " + two)
+                        h.complete(false)
+                        server.dispose()
+                      end
+                    } val
+                    where close_server = false)
+                else
+                  h.fail("login did not yield a token: " + one)
+                  h.complete(false)
+                  server.dispose()
+                end
+              } val
+              where close_server = false)
+          } val)
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
+    | let e: hobby.ConfigError =>
+      h.fail(e.message)
+      h.complete(false)
+    end
+
 primitive _RoomFrom
   """
   Pull `room_id` out of a create or join response.
@@ -721,6 +854,19 @@ primitive _TestUser
     """
     Pbkdf2MinIterations()
 
+primitive _OtherUser
+  """
+  A second account, so a rule about *whose* something is can be tested at
+  all.
+
+  The fixture held one account, which made every cross-account rule in the
+  server unreachable over HTTP — a handler could return another account's
+  user-signing key, or sign a device it does not hold, and the suite could
+  not tell. The rules were there; nothing could ask about them.
+  """
+  fun localpart(): String => "bob"
+  fun password(): String => "correct-horse"
+
 primitive _CredentialsFixture
   """
   The credentials file every server-booting test uses.
@@ -767,20 +913,10 @@ primitive _WriteFixtures
     end
 
     try
-      let salt = _Hex.bytes(Pbkdf2SaltLength())
-      let hash =
-        Pbkdf2Sha256(
-          _TestUser.password(),
-          salt,
-          _TestUser.iterations(),
-          Pbkdf2KeyLength())?
       let body: String =
         "users:\n"
-          + "  - localpart: " + _TestUser.localpart() + "\n"
-          + "    algorithm: pbkdf2-sha256\n"
-          + "    iterations: " + _TestUser.iterations().string() + "\n"
-          + "    salt: \"" + ToHexString(salt) + "\"\n"
-          + "    hash: \"" + ToHexString(hash) + "\"\n"
+          + _entry(_TestUser.localpart(), _TestUser.password())?
+          + _entry(_OtherUser.localpart(), _OtherUser.password())?
       let path = FilePath(auth, _CredentialsFixture.path())
       _write(path, body)
       // `_ReadCredentialsFile` refuses a file others can read.
@@ -798,6 +934,19 @@ primitive _WriteFixtures
     bridges_mode.group_read = false
     bridges_mode.any_read = false
     bridges_path.chmod(bridges_mode)
+
+  fun _entry(localpart: String, password: String): String ? =>
+    """
+    One credentials entry, salted freshly like any other.
+    """
+    let salt = _Hex.bytes(Pbkdf2SaltLength())
+    let hash =
+      Pbkdf2Sha256(password, salt, _TestUser.iterations(), Pbkdf2KeyLength())?
+    "  - localpart: " + localpart + "\n"
+      + "    algorithm: pbkdf2-sha256\n"
+      + "    iterations: " + _TestUser.iterations().string() + "\n"
+      + "    salt: \"" + ToHexString(salt) + "\"\n"
+      + "    hash: \"" + ToHexString(hash) + "\"\n"
 
   fun _write(path: FilePath, body: String) =>
     File(path) .> set_length(0) .> write(body) .> dispose()

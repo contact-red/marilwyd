@@ -376,8 +376,12 @@ actor \nodoc\ _StateOnlyOnce is SyncReceiver
       _first = false
       _h.assert_eq[USize](
         1, view.state.size(), "a room was described to nobody: " + rendered)
-      // Now past it, and an ordinary message must not drag it back.
-      _device .> deliver(_message) .> sync(USize(1), 0, this)
+      // Parked first, then woken. The bug this regresses lived in the
+      // waking: a woken sync answered as though it were fresh and
+      // re-sent the state. A sync with no wait never parks, so it never
+      // wakes, so it never reached the code it was written for — this
+      // asked its question of the wrong path for as long as it existed.
+      _device .> sync(USize(1), MaxSyncWait(), this) .> deliver(_message)
     else
       _h.assert_eq[USize](
         0,
