@@ -403,3 +403,71 @@ primitive \nodoc\ _Escaped
       end
       out
     end
+
+class \nodoc\ iso _TestARoomAskedToBeEncryptedIsEncrypted is UnitTest
+  """
+  A client asking for an encrypted room gets one that says it is.
+
+  marilwyd does no encryption — the clients do, among themselves — so
+  honouring the request means writing the state event they read to decide
+  whether to. Answering a client that asked for a room its server cannot
+  read with an ordinary room, and saying nothing about it, was the oldest
+  untruth in `createRoom`.
+  """
+  fun name(): String => "rooms/a room asked to be encrypted says so"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthedChain(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/createRoom",
+          "{\"name\":\"quiet\",\"initial_state\":[{"
+            + "\"type\":\"m.room.encryption\",\"state_key\":\"\","
+            + "\"content\":{\"algorithm\":\"m.megolm.v1.aes-sha2\"}}]}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(token, login, first) =>
+        _Get(
+          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0))
+            + "/state",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(
+          r.contains("m.room.encryption"),
+          "a room asked to be encrypted did not say it was: " + r)
+        h.assert_true(
+          r.contains("m.megolm.v1.aes-sha2"),
+          "the algorithm the client asked for was not written: " + r)
+      } val)
+
+class \nodoc\ iso _TestAnOrdinaryRoomIsNotEncrypted is UnitTest
+  """
+  And a room that asked for nothing does not claim to be encrypted, which
+  is the half that makes the other one mean something.
+  """
+  fun name(): String => "rooms/an ordinary room is not encrypted"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthedChain(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/createRoom",
+          "{\"name\":\"loud\"}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(token, login, first) =>
+        _Get(
+          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0))
+            + "/state",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_false(
+          r.contains("m.room.encryption"),
+          "a room nobody asked to encrypt claimed to be: " + r)
+      } val)

@@ -707,7 +707,8 @@ class \nodoc\ iso _TestANicknameComesFromTheLocalpart is UnitTest
 
 class \nodoc\ iso _TestOnlyTheOwnersWordsGoOut is UnitTest
   """
-  A connection relays its owner's words to the channel, and nobody else's.
+  A connection relays its owner's words to the channel, and nobody else's
+  — and only the kinds of thing IRC can carry.
 
   The whole outbound path had no test: `Room.carry` was called from
   nowhere in the suite and `UserLink.deliver` was never invoked, so
@@ -783,6 +784,15 @@ actor \nodoc\ _OutboundRelay is (RoomCreationReceiver & EventReceiver
     _send("@alice:example.test", "m.text", "mine")
     _send("@irc_net_bob:example.test", "m.text", "a ghost speaking")
     _send("@alice:example.test", "m.image", "photo.jpg")
+    // Ciphertext from an encrypted room, which is a different event kind
+    // rather than a different msgtype — so it is turned away one step
+    // earlier than the image is, and this is the step that matters most.
+    _room.send(
+      "@alice:example.test",
+      "m.room.encrypted",
+      "{\"algorithm\":\"m.megolm.v1.aes-sha2\","
+        + "\"ciphertext\":\"AwgAEnB5cGhlcnRleHQ\"}",
+      this)
     _send("@alice:example.test", "m.text", _Finished())
 
   fun ref _send(who: String, kind: String, body: String) =>
@@ -828,6 +838,9 @@ actor \nodoc\ _OutboundRelay is (RoomCreationReceiver & EventReceiver
       _h.assert_false(
         line.contains("photo.jpg"),
         "something that is not a message was relayed: " + line)
+      _h.assert_false(
+        line.contains("AwgAEnB5cGhlcnRleHQ"),
+        "an encrypted room's ciphertext was relayed to IRC: " + line)
     end
     _h.assert_true(mine, "the owner's own words did not reach the channel")
     _h.complete(true)

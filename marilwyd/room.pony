@@ -122,6 +122,20 @@ actor Room
       end
     end
 
+    // What a client must do to read anything said here. Written before
+    // anybody is admitted, so there is no moment at which the room exists
+    // and a member could send into it in the clear.
+    match wanted.encryption
+    | let algorithm: String =>
+      match _append(
+        user_id,
+        "m.room.encryption",
+        "{\"algorithm\":" + _quoted(algorithm) + "}",
+        "")
+      | None => return None
+      end
+    end
+
     // How the room may be entered, written whichever way it answers,
     // because a client shows a closed room differently from an open one
     // and a room that says nothing reads as neither.

@@ -45,16 +45,17 @@ which account-data keys Element writes and reads during
 
 ### Rooms are not encrypted, and `createRoom` says otherwise
 
-Element sends `preset`, `join_rules`, `guest_access` and
-`m.room.encryption` to `createRoom`; marilwyd reads `name` and ignores the
-rest. A room a client asked to make private and encrypted comes back public
-and unencrypted, and nothing tells it so. This is the oldest lie in the
-codebase and it grows more visible now that a client can reach the UI that
-makes rooms.
+**Done.** `createRoom` reads an `m.room.encryption` entry from
+`initial_state` and writes the state event, so a client that asked for an
+encrypted room gets one that says it is. `join_rules` follows from whether
+the room asked to be found rather than from the field. `preset` and
+`guest_access` are still dropped.
 
-Deciding what to do about `m.room.encryption` is a design question, not an
-implementation one: the IRC bridge is plaintext by nature, so a room that
-is genuinely encrypted end-to-end is a room the bridge cannot read.
+The design question it raised — the IRC bridge is plaintext by nature, so
+an encrypted room is one the bridge cannot read — is answered by the two
+being unable to meet. A bridged room is created by marilwyd without asking
+for encryption, and encryption is creation-time only, so neither can
+become the other.
 
 ### A backup holds nothing
 

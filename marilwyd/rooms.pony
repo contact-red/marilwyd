@@ -29,17 +29,25 @@ primitive MaxEventDepth
 
 primitive _CreateRoomWanted
   """
-  Read a `createRoom` body for the three things marilwyd honours.
+  Read a `createRoom` body for the four things marilwyd honours.
 
   `name` is text a client shows. `room_alias_name` becomes the room's
   alias, and an alias is a name anyone may resolve into a room id — so it
   is validated here rather than stored as sent. `visibility` decides
-  whether the room is listed in the public directory.
+  whether the room is listed in the public directory, and with it whether
+  the room is public or invite-only.
+
+  `initial_state` is read for one event and one only: `m.room.encryption`,
+  which is how a client asks for a room its server cannot read. Answering
+  a client that asked for that with a room that is not encrypted, and
+  saying nothing, is the one lie in `createRoom` worth going out of the
+  way to avoid.
 
   Everything else a client sends is dropped, and `README.md` says which.
-  `preset`, in particular, is read for nothing: no preset implies
-  encryption, and the access controls the others describe are ones this
-  server does not enforce.
+  `preset`, in particular, is read for nothing: the access controls it
+  describes are `join_rules`, which marilwyd derives from whether the room
+  asked to be found, and a preset that implies encryption still has to
+  send the state event to mean it.
   """
   fun apply(body: Array[U8] val, server_name: String)
     : (CreateRoomRequest | InvalidAlias)
@@ -48,7 +56,7 @@ primitive _CreateRoomWanted
       match JsonParser.parse(String.from_array(body))
       | let o: JsonObject => o
       else
-        return CreateRoomRequest(None, None, false)
+        return CreateRoomRequest(None, None, false, None)
       end
 
     let name: (String | None) =
@@ -72,7 +80,80 @@ primitive _CreateRoomWanted
         false
       end
 
-    CreateRoomRequest(name, alias, published)
+    CreateRoomRequest(name, alias, published, _WantsEncryption(sent))
+
+primitive _WantsEncryption
+  """
+  The algorithm an `initial_state` asked its room to be encrypted with, if
+  it asked.
+
+  The client's own algorithm rather than one marilwyd picks. This server
+  does no encryption — the clients do, among themselves — so it is in no
+  position to judge which algorithm they should agree on, and writing a
+  different one than was asked for would be answering a question nobody
+  asked it.
+
+  Bounded and escaped like any other text from a request. It is state,
+  which means every member reads it.
+  """
+  fun apply(sent: JsonObject): (String | None) =>
+    let initial =
+      match sent.get_or_else("initial_state", None)
+      | let a: JsonArray => a
+      else
+        return None
+      end
+
+    for entry in initial.values() do
+      let event =
+        match entry
+        | let o: JsonObject => o
+        else
+          continue
+        end
+
+      match event.get_or_else("type", None)
+      | let kind: String =>
+        if kind != "m.room.encryption" then
+          continue
+        end
+      else
+        continue
+      end
+
+      let content =
+        match event.get_or_else("content", None)
+        | let o: JsonObject => o
+        else
+          // Asked for encryption and named no algorithm. Taken as the
+          // request it plainly is, with the algorithm every client means.
+          return MegolmV1()
+        end
+
+      match content.get_or_else("algorithm", None)
+      | let named: String =>
+        if (named.size() == 0) or (named.size() > MaxAlgorithmName()) then
+          return MegolmV1()
+        end
+        return named.clone()
+      else
+        return MegolmV1()
+      end
+    end
+    None
+
+primitive MegolmV1
+  """
+  The only encryption algorithm any Matrix client uses today, and what
+  marilwyd writes when a client asks for encryption without naming one.
+  """
+  fun apply(): String => "m.megolm.v1.aes-sha2"
+
+primitive MaxAlgorithmName
+  """
+  How long an algorithm name may be. A protocol identifier, not prose.
+  """
+  fun apply(): USize => 64
 
 primitive MaxCreateBody
   """
@@ -210,10 +291,11 @@ actor _CreateRoomHandler is
     end
 
   be token_resolved(session: Session) =>
-    // Only `name` is read. Element also sends `preset`, `join_rules` and
-    // `m.room.encryption`, none of which marilwyd implements — a room is
-    // always unencrypted and always joinable by anyone holding its id, and
-    // `README.md` says so rather than letting a client's padlock lie.
+    // `name`, `room_alias_name`, `visibility` and an `m.room.encryption`
+    // entry in `initial_state`. `preset` and `join_rules` are read for
+    // nothing: how a room may be entered follows from whether it asked to
+    // be found, and a preset that implies encryption still has to send
+    // the state event to mean it. `README.md` lists what is dropped.
     if _body.size() > MaxCreateBody() then
       _respond(
         stallion.StatusBadRequest,

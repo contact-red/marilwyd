@@ -25,10 +25,19 @@ invite-only, and only a member may invite — there are no power levels, so
 that is the whole of who may. An invitation reaches the invitee's client
 on its next sync and is theirs to accept or leave.
 
-Encryption is stored and served, not performed. marilwyd holds the keys
-clients publish and hands them back — device keys, cross-signing keys,
-signatures, and the description of a key backup — which is what a client
-needs to finish signing in. It verifies no signature and encrypts nothing:
+Encryption is stored and served, not performed. A room asked to be
+encrypted is created with `m.room.encryption` and says so to every client
+that reads its state, which is what they consult before encrypting to one
+another — and it is asked for at creation or not at all, because marilwyd
+has no endpoint that sets state on a room that already exists. A bridged
+room is never one: it is created by marilwyd without asking, and what is
+said in a room its own server cannot read has nowhere to go on a plaintext
+network anyway.
+
+marilwyd holds the keys clients publish and hands them back — device keys,
+cross-signing keys, signatures, and the description of a key backup —
+which is what a client needs to finish signing in. It verifies no
+signature and encrypts nothing:
 that is the clients' job, and `SECURITY.md` says exactly what crosses which
 line. Two devices of one account can now reach each other: `POST /keys/claim`
 spends a one-time key so they can open a session, and

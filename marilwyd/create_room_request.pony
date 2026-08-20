@@ -15,15 +15,22 @@ class val CreateRoomRequest
   let name: (String | None)
   let alias: (RoomAlias | None)
   let published: Bool
+  // The algorithm the room is encrypted with, when a client asked for
+  // one. Creation-time and nowhere else: marilwyd has no endpoint that
+  // sets state after a room exists, so a room that was not asked to be
+  // encrypted cannot become so, and one that was cannot stop being.
+  let encryption: (String | None)
 
   new val create(
     name': (String | None),
     alias': (RoomAlias | None),
-    published': Bool)
+    published': Bool,
+    encryption': (String | None) = None)
   =>
     name = name'
     alias = alias'
     published = published'
+    encryption = encryption'
 
   fun open(): Bool =>
     """
@@ -39,3 +46,9 @@ class val CreateRoomRequest
     a room for the people its creator names.
     """
     published or (alias isnt None)
+
+  fun encrypted(): Bool =>
+    """
+    Whether this room was asked to be one its server cannot read.
+    """
+    encryption isnt None
