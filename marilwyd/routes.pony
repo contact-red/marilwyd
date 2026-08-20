@@ -115,6 +115,9 @@ primitive Routes
         "/_matrix/client/v3/join/:roomIdOrAlias",
         _JoinRoom(sessions, rooms, links, hs))
       .> post(
+        "/_matrix/client/v3/rooms/:roomId/invite",
+        _InviteToRoom(sessions, rooms))
+      .> post(
         "/_matrix/client/v3/rooms/:roomId/leave",
         _LeaveRoom(sessions, rooms, links, hs))
       .> put(

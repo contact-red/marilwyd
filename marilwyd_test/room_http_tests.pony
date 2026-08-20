@@ -278,3 +278,128 @@ class \nodoc\ iso _TestADeeplyNestedEventIsRefused is UnitTest
         _AssertErrcode(h, r, "M_BAD_JSON")
         h.assert_true(r.contains("nested more deeply"), r)
       } val)
+
+class \nodoc\ iso _TestAClosedRoomRefusesAStranger is UnitTest
+  """
+  A room that was never offered to anyone is entered by invitation only.
+
+  A room id used to be the whole of the access control: anyone who
+  learned one could enter, and that reasoning was written into the type
+  and into `SECURITY.md`. It is now the first half of it.
+  """
+  fun name(): String => "rooms/an uninvited stranger cannot join"
+
+  fun apply(h: TestHelper) =>
+    _ServeSteps(
+      h,
+      recover val
+        [ as {(String, String, Array[String] val): String} val:
+          // Made by the first account, unpublished and unaliased, so
+          // invite-only.
+          {(mine, theirs, before) =>
+            _Post(
+              "/_matrix/client/v3/createRoom",
+              "{}",
+              "Authorization: Bearer " + mine + "\r\n")
+          }
+          // The second account, holding the id and no invitation.
+          {(mine, theirs, before) =>
+            _Post(
+              "/_matrix/client/v3/join/" + _Escaped(_IdIn(before, 0)),
+              "{}",
+              "Authorization: Bearer " + theirs + "\r\n")
+          } ]
+      end,
+      {(answers) =>
+        try
+          h.assert_false(
+            answers(1)?.contains("HTTP/1.1 200 OK\r\n"),
+            "an uninvited account joined a closed room: " + answers(1)?)
+          _AssertErrcode(h, answers(1)?, "M_FORBIDDEN")
+        else
+          h.fail("the steps did not all answer")
+        end
+      } val)
+
+class \nodoc\ iso _TestAnInvitationLetsThemIn is UnitTest
+  """
+  Make a closed room, offer it, and accept — somebody entering a room they
+  could not have entered a moment earlier.
+
+  The half that makes the refusal above mean something. A gate that
+  refuses everyone is not a gate, it is a wall.
+  """
+  fun name(): String => "rooms/an invitation lets somebody in"
+
+  fun apply(h: TestHelper) =>
+    _ServeSteps(
+      h,
+      recover val
+        [ as {(String, String, Array[String] val): String} val:
+          {(mine, theirs, before) =>
+            _Post(
+              "/_matrix/client/v3/createRoom",
+              "{}",
+              "Authorization: Bearer " + mine + "\r\n")
+          }
+          {(mine, theirs, before) =>
+            _Post(
+              "/_matrix/client/v3/rooms/" + _Escaped(_IdIn(before, 0))
+                + "/invite",
+              "{\"user_id\":\"@" + _OtherUser.localpart()
+                + ":example.test\"}",
+              "Authorization: Bearer " + mine + "\r\n")
+          }
+          {(mine, theirs, before) =>
+            _Post(
+              "/_matrix/client/v3/join/" + _Escaped(_IdIn(before, 0)),
+              "{}",
+              "Authorization: Bearer " + theirs + "\r\n")
+          } ]
+      end,
+      {(answers) =>
+        try
+          h.assert_true(
+            answers(1)?.contains("HTTP/1.1 200 OK\r\n"),
+            "a member could not invite: " + answers(1)?)
+          h.assert_true(
+            answers(2)?.contains("HTTP/1.1 200 OK\r\n"),
+            "an invited account could not join: " + answers(2)?)
+        else
+          h.fail("the steps did not all answer")
+        end
+      } val)
+
+primitive \nodoc\ _IdIn
+  """
+  The room id from one of the answers so far.
+  """
+  fun apply(answers: Array[String] val, at: USize): String =>
+    try
+      match _RoomFrom(answers(at)?)
+      | let id: String => id
+      else
+        ""
+      end
+    else
+      ""
+    end
+
+primitive \nodoc\ _Escaped
+  """
+  A room id as it goes in a path.
+  """
+  fun apply(id: String): String =>
+    recover val
+      let out = String(id.size() * 3)
+      for byte in id.values() do
+        match byte
+        | '!' => out.append("%21")
+        | ':' => out.append("%3A")
+        | '$' => out.append("%24")
+        else
+          out.push(byte)
+        end
+      end
+      out
+    end

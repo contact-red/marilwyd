@@ -31,3 +31,15 @@ primitive BridgeDown
   """
   fun message(): String =>
     "The connection to the network is down, so nothing was sent"
+
+primitive NotInvited
+  """
+  The room may be entered by invitation only, and the caller holds none.
+
+  A room id is the first half of the access control on a room, and this is
+  the second — for every room that did not ask to be found, which is every
+  room without an alias and without a place in the public directory. A
+  room that did ask has no second half, by its own request.
+  """
+  fun message(): String =>
+    "You are not invited to that room"

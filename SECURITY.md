@@ -232,14 +232,29 @@ What this bounds and what it does not:
   member had to sign in, and a channel participant is whoever a remote
   server says is there.
 
-A room id is the whole of the access control on a room. Anyone holding one
-can join, there are no invitations, and nothing revokes an id — a room
-cannot be renamed into a new one and a member cannot be removed by anyone
-but themselves. It is 128 bits from the CSPRNG so it cannot be guessed,
-which makes disclosure the only way one escapes. `--log-requests` prints
-paths, and three of the room endpoints carry the id in the path, so **do
-not enable request logging on a deployment where room ids matter** until
-that is redacted.
+A room is entered by naming it and, unless it asked to be found, by having
+been invited to it. `m.room.join_rules` records which of the two it is: a
+room made with an alias or a place in the public directory is `public`,
+because asking to be found is asking for people to arrive uninvited, and
+every other room is `invite`.
+
+A room id is therefore the first half of the access control and the
+invitation is the second. The id is 128 bits from the CSPRNG so it cannot
+be guessed, which makes disclosure the only way one escapes; for a public
+room that disclosure is the whole of it. `--log-requests` prints paths,
+and the room endpoints carry the id in the path, so **do not enable
+request logging on a deployment where room ids matter** until that is
+redacted.
+
+Nothing revokes either half. An id cannot be rotated — a room cannot be
+renamed into a new one — and an invitation, once accepted, is a
+membership that only its holder may end. A member cannot be removed by
+anyone else.
+
+Only a member may invite, which is the whole of who may. marilwyd has no
+power levels, so there is nothing weaker to check, and without that rule
+a room id would let a stranger add people to a room they are not in
+themselves.
 
 ## Published keys
 
@@ -353,10 +368,10 @@ than bounded here.
 ## Aliases and the public directory
 
 An alias — `#pony:server_name` — is a short, guessable name that resolves
-to a room id. A room id is the entire access control on a room: anyone
-holding one may join, there are no invitations, and nothing revokes one.
-Put together, **giving a room an alias makes that room joinable by anyone
-who guesses the alias**, which is a far smaller space than 128 bits.
+to a room id, and a room given one is public: it asked to be found, so it
+does not also ask for an invitation. Put together, **giving a room an
+alias makes that room joinable by anyone who guesses the alias**, which is
+a far smaller space than 128 bits.
 
 That is what an alias is for, and it is not a defect. What matters is that
 it is deliberate. marilwyd therefore treats an alias as a decision to make

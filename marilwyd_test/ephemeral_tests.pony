@@ -63,7 +63,7 @@ class \nodoc\ iso _TestAReadPositionIsLastWriteWins is UnitTest
       _NoRandom(h)
     end
 
-actor \nodoc\ _ReadTwice is (SyncReceiver & MembershipReceiver)
+actor \nodoc\ _ReadTwice is (SyncReceiver & RoomCreationReceiver)
   """
   Reads twice, then looks at what one device is told.
   """
@@ -83,12 +83,22 @@ actor \nodoc\ _ReadTwice is (SyncReceiver & MembershipReceiver)
     _user = User("@alice:example.test")
     _user.attach("laptop", _device)
     _room = Room(id)
+    // Created rather than joined. Alice is the room's only member, which
+    // in a running server means she made it — and a room nobody made is
+    // a room nobody may enter, because it carries no rule saying they
+    // may.
+    //
     // The account is passed twice on purpose: as the member the room fans
     // events to, and as the account that hears its ephemeral state. A
     // bridged user's IRC connection is only ever the first.
-    _room.join("@alice:example.test", _user, this, _user)
+    _room.created_by(
+      "@alice:example.test",
+      _user,
+      CreateRoomRequest(None, None, false),
+      this,
+      _user)
 
-  be membership_changed(room: RoomId) =>
+  be room_created(id: RoomId) =>
     _room
       .> read_up_to("@alice:example.test", "$first")
       .> read_up_to("@alice:example.test", "$second")
@@ -96,8 +106,12 @@ actor \nodoc\ _ReadTwice is (SyncReceiver & MembershipReceiver)
     _room.members(
       "@alice:example.test", _IgnoreState(this, _device, _user))
 
-  be membership_refused(why: NoSuchRoom) =>
-    _h.fail("joining was refused")
+  be room_refused() =>
+    _h.fail("the room was not created")
+    _h.complete(false)
+
+  be alias_taken() =>
+    _h.fail("an unnamed room claimed an alias")
     _h.complete(false)
 
   be synced(view: SyncView) =>

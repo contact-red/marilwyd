@@ -480,6 +480,11 @@ actor _MembershipHandler is
       stallion.StatusNotFound,
       MatrixError("M_NOT_FOUND", NoSuchRoom.message()))
 
+  be membership_refused(why: NotInvited) =>
+    _respond(
+      stallion.StatusForbidden,
+      MatrixError("M_FORBIDDEN", NotInvited.message()))
+
   be membership_changed(room: RoomId) =>
     _respond(stallion.StatusOK, RoomCreated(room))
 
@@ -740,3 +745,172 @@ actor _RoomStateHandler is
   be dispose() => None
   be throttled() => None
   be unthrottled() => None
+
+class val _InviteToRoom
+  """
+  `POST /_matrix/client/v3/rooms/{roomId}/invite`.
+
+  How anybody gets into a room they were not handed the id of. Without it
+  a person could only be brought into a room by being sent its id out of
+  band, which is both the least private way to do it and the only one
+  marilwyd had.
+  """
+  let _sessions: SessionRegistry tag
+  let _rooms: RoomDirectory tag
+
+  new val create(sessions: SessionRegistry tag, rooms: RoomDirectory tag) =>
+    _sessions = sessions
+    _rooms = rooms
+
+  fun apply(ctx: hobby.HandlerContext iso)
+    : (hobby.HandlerReceiver tag | None)
+  =>
+    _InviteHandler(consume ctx, _sessions, _rooms)
+
+actor _InviteHandler is
+  (hobby.HandlerReceiver & UserReceiver & RoomLookupReceiver
+    & MembershipReceiver & UserLookupReceiver)
+  """
+  Invites one account to one room, on behalf of a member of it.
+  """
+  embed _handler: hobby.RequestHandler
+  let _rooms: RoomDirectory tag
+  let _params: Map[String, String] val
+  let _body: Array[U8] val
+  let _sessions: SessionRegistry tag
+  var _session: (Session | None) = None
+  var _room: (Room tag | None) = None
+
+  new create(
+    ctx: hobby.HandlerContext iso,
+    sessions: SessionRegistry tag,
+    rooms: RoomDirectory tag)
+  =>
+    let supplied = _BearerToken(ctx.request)
+    _params = ctx.params
+    _body = ctx.body
+    _rooms = rooms
+    _sessions = sessions
+    _handler = hobby.RequestHandler(consume ctx)
+
+    match supplied
+    | let t: String => sessions.resolve(t, this)
+    else
+      _respond(stallion.StatusUnauthorized, MissingToken())
+    end
+
+  be token_resolved(session: Session) =>
+    _session = session
+    match \exhaustive\ _PathParam(_params, "roomId")
+    | let id: String => _rooms.with_room(id, this)
+    else
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError("M_INVALID_PARAM", "That is not a room identifier"))
+    end
+
+  be token_rejected() =>
+    _respond(stallion.StatusUnauthorized, UnknownToken())
+
+  be room_found(room: Room tag) =>
+    let invited =
+      match _InvitedUser(_body)
+      | let who: String => who
+      else
+        _respond(
+          stallion.StatusBadRequest,
+          MatrixError("M_INVALID_PARAM", "That is not a user identifier"))
+        return
+      end
+
+    // The invitee's own actor, so the offer reaches their client. Asked
+    // for by name because an account that has never signed in has none —
+    // and inviting them is still allowed, so this cannot refuse.
+    _room = room
+    _sessions.lookup_users(recover val [invited] end, this)
+
+  be users_found(
+    known: Array[(String, User tag)] val,
+    unknown: Array[String] val)
+  =>
+    match (_session, _room)
+    | (let s: Session, let room: Room tag) =>
+      let who =
+        try
+          (let _, let user: User tag) = known(0)?
+          user
+        else
+          None
+        end
+      let invited =
+        try
+          (let id: String, let _) = known(0)?
+          id
+        else
+          try unknown(0)? else return end
+        end
+      room.invite(invited, s.user_id, who, this)
+    end
+
+  be room_missing() =>
+    _respond(
+      stallion.StatusNotFound,
+      MatrixError("M_NOT_FOUND", NoSuchRoom.message()))
+
+  be membership_changed(room: RoomId) =>
+    _respond(stallion.StatusOK, LogoutSuccess())
+
+  be membership_refused(why: NotInvited) =>
+    // Inviting from outside a room is refused with the same answer as
+    // entering one from outside: in both cases the caller is not in the
+    // room, and saying more would tell them whether it exists.
+    _respond(
+      stallion.StatusForbidden,
+      MatrixError("M_FORBIDDEN", "You are not a member of that room"))
+
+  fun ref _respond(status: stallion.Status, body: String) =>
+    _handler.respond_with_headers(status, _JSONHeaders(), body)
+
+  be dispose() => None
+  be throttled() => None
+  be unthrottled() => None
+
+primitive _InvitedUser
+  """
+  The `user_id` an invite request names, if it named a usable one.
+
+  Checked for shape rather than for existence. Whether an account exists
+  is not something this endpoint may reveal — a caller could otherwise
+  read the account list off it one guess at a time — so a well-formed id
+  for an account nobody holds is invited exactly like any other.
+  """
+  fun apply(body: Array[U8] val): (String | None) =>
+    let parsed =
+      match _ObjectBody(body, MaxEventBody())
+      | let o: JsonObject => o
+      else
+        return None
+      end
+
+    let named =
+      try
+        match parsed("user_id")?
+        | let text: String => text
+        else
+          return None
+        end
+      else
+        return None
+      end
+
+    if (named.size() < 2) or (named.size() > 255) then
+      return None
+    end
+    try
+      if (named(0)? != '@') or (not named.contains(":")) then
+        return None
+      end
+    else
+      return None
+    end
+    named.clone()

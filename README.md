@@ -7,7 +7,7 @@ web client — one origin, one process.
 
 **Element signs in and reaches the app.** A local user logs in, the client
 settles into a real sync loop instead of retrying, finishes setting up
-encryption keys, and renders the room list. Thirty-four Matrix endpoints,
+encryption keys, and renders the room list. Thirty-five Matrix endpoints,
 listed below.
 
 One account can be signed in from several clients at once — a browser, a
@@ -17,6 +17,13 @@ able to sign out without disturbing the others.
 Accounts come from a file of password hashes — there is no registration
 endpoint. Sessions live in memory, so a restart ends all of them. Everything
 Element asks for beyond the table below answers `M_UNRECOGNIZED`.
+
+**A room is entered by naming it, and usually by being asked.** A room made
+with an alias or a place in the public directory is public: asking to be
+found is asking for people to arrive uninvited. Every other room is
+invite-only, and only a member may invite — there are no power levels, so
+that is the whole of who may. An invitation reaches the invitee's client
+on its next sync and is theirs to accept or leave.
 
 Encryption is stored and served, not performed. marilwyd holds the keys
 clients publish and hands them back — device keys, cross-signing keys,
@@ -218,6 +225,7 @@ public.
 | GET | `/_matrix/client/v3/sync` | a device's events; holds up to 25 s |
 | POST | `/_matrix/client/v3/createRoom` | makes a room |
 | POST | `/_matrix/client/v3/join/:roomIdOrAlias` | joins one |
+| POST | `/_matrix/client/v3/rooms/:roomId/invite` | asks somebody into one |
 | POST | `/_matrix/client/v3/rooms/:roomId/leave` | leaves one |
 | PUT | `/_matrix/client/v3/rooms/:roomId/send/:type/:txn` | sends an event |
 | GET | `/_matrix/client/v3/rooms/:roomId/state` | a room's current state |

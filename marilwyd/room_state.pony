@@ -23,6 +23,11 @@ class ref RoomState
   let id: RoomId
   embed _state: Map[String, Map[String, RoomEvent]] = _state.create()
   embed _members: Set[String] = _members.create()
+  // Invited, which is not a member: an invitation is permission to join
+  // and nothing else. Someone holding one may not send, may not read what
+  // is said, and is not fanned out to — they are told the room exists and
+  // enough about it to decide.
+  embed _invited: Set[String] = _invited.create()
 
   new ref create(id': RoomId) =>
     id = id'
@@ -46,10 +51,48 @@ class ref RoomState
 
   fun ref join(user_id: String) =>
     _members.set(user_id)
+    // An invitation is spent by being accepted. Left set, the room would
+    // go on offering a room its holder is already in.
+    try
+      _invited.extract(user_id)?
+    end
+
+  fun ref invite(user_id: String) =>
+    """
+    Record that somebody may join, without admitting them.
+    """
+    _invited.set(user_id)
+
+  fun is_invited(user_id: String): Bool =>
+    _invited.contains(user_id)
+
+  fun ref withdraw(user_id: String) =>
+    """
+    Drop an invitation that was refused, or that its holder left behind.
+    """
+    try
+      _invited.extract(user_id)?
+    end
+
+  fun open(): Bool =>
+    """
+    Whether anyone who can name this room may enter it.
+
+    Read from the room's own state rather than held beside it, so there is
+    one answer and a client reading `m.room.join_rules` is reading what is
+    enforced. A room with no rule written is closed: the rooms that have
+    none are the ones from before the rule existed, and refusing is the
+    answer that cannot leak one.
+    """
+    match content_of("m.room.join_rules")
+    | let content: String => content.contains("\"public\"")
+    else
+      false
+    end
 
   fun ref leave(user_id: String) =>
     """
-    Remove a member, and the membership event that named them.
+    Remove a member or an invitation, and the event that named them.
 
     Both, in one call, because membership is recorded twice here — as the
     member set and as an `m.room.member` slot — and a caller that updated
@@ -67,6 +110,9 @@ class ref RoomState
     """
     try
       _members.extract(user_id)?
+    end
+    try
+      _invited.extract(user_id)?
     end
     try
       (_, _) = _state("m.room.member")?.remove(user_id)?

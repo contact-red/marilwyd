@@ -18,6 +18,11 @@ actor User
   let id: String
   embed _devices: Map[String, Device tag] = _devices.create()
   embed _rooms: Map[String, Room tag] = _rooms.create()
+  // Invitations this account has not answered. Held here and not only on
+  // the devices, because a device that signs in after the invitation
+  // arrived would otherwise never hear of it — and an invitation nobody
+  // is shown is one that cannot be accepted.
+  embed _invites: Map[String, Array[RoomEvent] val] = _invites.create()
   embed _account: Map[String, String] = _account.create()
   // Published keys are account-wide public data rather than device session
   // state: another user queries them by account, and they must outlive a
@@ -46,6 +51,15 @@ actor User
     for (room_id, room) in _rooms.pairs() do
       room.describe(device)
     end
+    for (room_id, state') in _invites.pairs() do
+      device.invited(room_id, state')
+    end
+    // Both of the loops above race a first sync, which answers at once
+    // rather than waiting: this actor and the handler are two senders
+    // talking to one device, and nothing orders them. A first sync may
+    // therefore answer before either arrives. It self-corrects — both
+    // wake a parked sync, and a client polls continuously — which is the
+    // same bargain room state has always made here.
     if _account.size() > 0 then
       device.account_data(_snapshot())
     end
@@ -270,8 +284,23 @@ actor User
 
   be joined(room_id: String, room: Room tag) =>
     _rooms(room_id) = room
+    // Being in the room settles the invitation to it.
+    try
+      (_, _) = _invites.remove(room_id)?
+    end
     for device in _devices.values() do
       room.describe(device)
+    end
+
+  be invited(room_id: String, state': Array[RoomEvent] val) =>
+    """
+    This account has been asked into a room. Every device is told, because
+    any of them may be the one the person is looking at — and it is kept,
+    so a device signing in later is told too.
+    """
+    _invites(room_id.clone()) = state'
+    for device in _devices.values() do
+      device.invited(room_id, state')
     end
 
   be departed(room_id: String) =>

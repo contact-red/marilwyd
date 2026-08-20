@@ -10,3 +10,8 @@ interface tag MembershipReceiver
     answer — an empty body naming the room — and a handler that had to tell
     them apart would be inventing a distinction no client reads.
     """
+
+  be membership_refused(why: NotInvited)
+    """
+    The room would not have them, and this is why.
+    """
