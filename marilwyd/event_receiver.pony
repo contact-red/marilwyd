@@ -7,7 +7,7 @@ interface tag EventReceiver
     The event was recorded and fanned out to the room's members.
     """
 
-  be event_refused(why: (NotInRoom | NoEventId))
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown))
     """
     Nothing was recorded, and this is why.
     """

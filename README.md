@@ -46,6 +46,14 @@ leaving closes it, and idling between is the ordinary way to be on a
 channel. A network that refuses is a Matrix room the client does not
 enter: membership means connected on both sides.
 
+It goes on meaning that. A connection that drops and is being retried
+keeps its member — losing a room to a netsplit would make the Matrix side
+noisier than the channel it mirrors — but sending stops until it is back,
+so a message written meanwhile is refused rather than accepted and lost.
+A connection that will not be retried takes its member out of the room,
+because a room whose whole content was that connection has nothing left
+to show.
+
 That is also why the rooms are per person. A room is what one IRC session
 heard, and two people who enter the same channel see each other through
 IRC — as their far-side nicknames, over the round trip — which is what two

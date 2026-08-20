@@ -27,10 +27,17 @@ primitive _Connect
         // this either authenticates nobody or fails every handshake.
         match \exhaustive\ _Authority(env)
         | let store: FilePath =>
-          recover val
-            let ctx = SSLContext .> set_client_verify(true)
-            try ctx.set_authority(store)? end
-            ctx
+          try
+            _TrustingContext(store)?
+          else
+            // The load is checked. Verification is on, so a store that
+            // did not load leaves a context trusting nobody: every
+            // handshake fails and nothing says why. Refusing here names
+            // the file instead.
+            return StartupError(
+              "bridge-tls-authority",
+              "the certificate authorities for " + network.name
+                + " could not be loaded from " + store.path)
           end
         | None =>
           return StartupError(
@@ -93,3 +100,20 @@ primitive _Authority
       end
     end
     None
+
+primitive _TrustingContext
+  """
+  An SSL context that verifies its peer against `store`, or nothing.
+
+  Both halves matter and neither is a default: `SSLContext` starts with
+  verification off, and on anything but Windows it will not load the
+  system roots by itself. A context with one half is worse than a context
+  with neither, because it fails every handshake rather than obviously
+  doing nothing.
+  """
+  fun apply(store: FilePath): SSLContext val ? =>
+    recover val
+      SSLContext
+        .> set_client_verify(true)
+        .> set_authority(store)?
+    end

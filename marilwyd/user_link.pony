@@ -24,8 +24,14 @@ primitive JoinDeadline
   registration timeouts are thirty seconds *each* — a join inheriting both
   could wait a minute before answering. This bounds the whole attempt, so
   what a person waits is what is written here.
+
+  Under hobby's handler watchdog, for `MaxSyncWait`'s reason and by the
+  same margin. That watchdog is armed when the handler is built and this
+  deadline only once a token is resolved, a room is found and a socket is
+  opened — so at equal values hobby always wins, and the client gets a
+  bodiless 504 instead of the refusal this exists to send.
   """
-  fun apply(): U64 => 30_000_000_000
+  fun apply(): U64 => 25_000_000_000
 
 actor UserLink is (irc.IRCNotify & RoomMember)
   """
@@ -54,6 +60,11 @@ actor UserLink is (irc.IRCNotify & RoomMember)
   var _joined: Bool = false
   let _timers: Timers = Timers
   var _deadline: (Timer tag | None) = None
+  // Who to tell when this connection is finished for good. Held because a
+  // connection that has died has to be forgotten by the directory as well
+  // as by the room: a directory that kept it would answer the next join
+  // with it, and that join would succeed into a room carrying nothing.
+  var _directory: (LinkOwner tag | None) = None
   // Who the channel says is there, recorded until there is a room to tell.
   // The server sends its name list the instant the channel is entered,
   // which is before the room has handed back its own reference — so
@@ -75,6 +86,13 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     _mapping = mapping
     _homeserver = homeserver
     _out = out
+
+  be directed_by(directory: LinkOwner tag) =>
+    """
+    The directory that holds this connection, and must drop it when it
+    dies.
+    """
+    _directory = directory
 
   be carries(room: Room tag) =>
     """
@@ -121,7 +139,7 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     | let receiver: JoinReceiver tag =>
       _waiting = None
       receiver.join_refused(_channel)
-      _close()
+      _finished("gave up waiting for " + _network.name)
     end
 
   be relay(text: String, notice: Bool = false) =>
@@ -146,12 +164,41 @@ actor UserLink is (irc.IRCNotify & RoomMember)
           sending.privmsg(channel, line)
         end
       end
+    else
+      // `Room.send` refuses while this connection is stalled, so reaching
+      // here means the connection died between that check and this
+      // message. Rare, and still somebody's words going nowhere, so it is
+      // said rather than dropped in silence.
+      _say(_user_id + ": a message was lost as " + _network.name
+        + " went away")
     end
 
   be part() =>
     """
     The user left the room. Leave the channel and drop the connection.
     """
+    _close()
+
+  fun ref _finished(why: String) =>
+    """
+    This connection is over and will not carry anything again.
+
+    The one place a death is handled, because the ways of dying differ
+    and what has to follow from them does not: say why, stop the socket,
+    part the owner from a room whose whole content was this connection,
+    and have the directory forget it. Leaving any of those out is how a
+    dead connection went on looking alive — the room accepted messages
+    nobody received, and the next join found the corpse and succeeded.
+    """
+    _say(_user_id + ": " + why)
+    match _room
+    | let room: Room tag => room.leave(_user_id, _IgnoreDeparture)
+    end
+    match _directory
+    | let directory: LinkOwner tag =>
+      directory.forget(_user_id, _network.name, _channel)
+    end
+    _room = None
     _close()
 
   fun ref _close() =>
@@ -162,6 +209,14 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     end
     match _sending
     | let sending: irc.IRCSend tag => sending.quit("left the room")
+    else
+      // `quit` only reaches a registered connection, and the whole window
+      // the join deadline covers is before registration. Without this a
+      // timed-out attempt left the socket retrying under that user's
+      // nickname for the life of the process.
+      match _link
+      | let link: irc.IRC tag => link.disconnect()
+      end
     end
     _sending = None
     _link = None
@@ -175,9 +230,16 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     here rather than once at connect.
     """
     _sending = irc'
-    match irc.Channels(_channel)
+    match \exhaustive\ irc.Channels(_channel)
     | let channel: irc.Channel =>
       irc'.join(recover val [channel] end)
+    | let _: irc.InvalidName =>
+      // Unreachable from a configuration `ReadBridges` accepted, which
+      // now checks the name against this same function. Answered rather
+      // than ignored anyway, because the alternative is a connection that
+      // registers, never joins, and waits out every deadline in silence.
+      _finished(
+        "cannot join " + _channel + ": the network would refuse the name")
     end
 
   be irc_message(
@@ -247,7 +309,19 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     | let receiver: JoinReceiver tag =>
       _waiting = None
       receiver.joined_with(_channel, this)
+      return
     end
+
+    // No one waiting means this is a reconnect rather than the first
+    // entry, so the room is holding a member whose sends have been
+    // refused since the drop. It is on the channel again.
+    match _room
+    | let room: Room tag => room.carrier_carrying(_user_id)
+    end
+    // Said for the same reason the drop is: an operator watching a bridge
+    // flap needs both ends of it, and a recovery that is silent looks
+    // from the log like an outage that never ended.
+    _say(_user_id + " is back on " + _network.name + " " + _channel)
 
   fun ref _named(m: irc.Message val, settled: irc.Registration val) =>
     """
@@ -496,8 +570,70 @@ actor UserLink is (irc.IRCNotify & RoomMember)
 
   be irc_session(irc': irc.IRCSend tag, ended: irc.SessionEnded val) =>
     """
-    The connection ended. A user waiting on it is refused rather than left
-    to the deadline: a network that said no has already answered.
+    The connection dropped, and the library will try it again.
+
+    Transient, so the member keeps their room: a connection that comes
+    back is what a bouncer is, and parting somebody over a netsplit would
+    make the Matrix room noisier than the channel it mirrors. What stops
+    is sending — the room is told, so a message written while the network
+    is unreachable is refused rather than accepted and lost.
+
+    A user still waiting on the first attempt is refused now rather than
+    left to the deadline: a network that has already said no has answered.
+    """
+    dropped(ended.string())
+
+  be irc_stopped(irc': irc.IRCSend tag, ended: irc.SessionEnded val) =>
+    """
+    The connection is finished and will not be attempted again.
+
+    Terminal, unlike `irc_session`, so the member does not keep a room
+    that can never carry anything again. They are parted and the
+    directory drops this connection, which is what makes a later join a
+    fresh attempt rather than an instant success into a dead link.
+    """
+    died(ended.string())
+
+  be dropped(why: String) =>
+    """
+    The connection went away and the library will try it again.
+
+    Taken apart from `irc_session` because that behaviour speaks the
+    library's vocabulary and this speaks marilwyd's — and because a
+    `SessionEnded` cannot be built outside the `irc` package, so the
+    whole of this path was unreachable from a test while it was one
+    behaviour.
+
+    Transient, so the member keeps their room: a connection that comes
+    back is what a bouncer is, and parting somebody over a netsplit would
+    make the Matrix room noisier than the channel it mirrors. What stops
+    is sending — the room is told, so a message written while the network
+    is unreachable is refused rather than accepted and lost.
+    """
+    _sending = None
+    _joined = false
+
+    match _waiting
+    | let receiver: JoinReceiver tag =>
+      // Still waiting on the first attempt, so this is a refusal rather
+      // than a drop: a network that has already said no has answered.
+      _waiting = None
+      receiver.join_refused(_channel)
+      _finished("could not reach " + _network.name + ": " + why)
+      return
+    end
+
+    match _room
+    | let room: Room tag => room.carrier_stalled(_user_id)
+    end
+    _say(_user_id + " lost " + _network.name + ": " + why)
+
+  be died(why: String) =>
+    """
+    The connection is finished and will not be attempted again.
+
+    Terminal, unlike `dropped`, so the member does not keep a room that
+    can never carry anything again.
     """
     _sending = None
     _joined = false
@@ -506,16 +642,7 @@ actor UserLink is (irc.IRCNotify & RoomMember)
       _waiting = None
       receiver.join_refused(_channel)
     end
-    _say(_user_id + " lost " + _network.name + ": " + ended.string())
-
-  be irc_stopped(irc': irc.IRCSend tag, ended: irc.SessionEnded val) =>
-    _sending = None
-    _joined = false
-    match _waiting
-    | let receiver: JoinReceiver tag =>
-      _waiting = None
-      receiver.join_refused(_channel)
-    end
+    _finished(_network.name + " is gone: " + why)
 
   be irc_unparseable(
     irc': irc.IRCSend tag,
@@ -627,7 +754,7 @@ actor _IgnoreRelay is EventReceiver
   `admit_ghost` has already settled.
   """
   be event_sent(id: EventId) => None
-  be event_refused(why: (NotInRoom | NoEventId)) => None
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) => None
 
 primitive _IsCtcp
   """
@@ -658,3 +785,14 @@ primitive _IsCtcp
 primitive _Upper
   fun apply(byte: U8): U8 =>
     if (byte >= 'a') and (byte <= 'z') then byte - 32 else byte end
+
+actor \nodoc\ _IgnoreDeparture is MembershipReceiver
+  """
+  A connection parting its own owner has nobody to answer.
+
+  The client is not waiting on this: it asked to join, or it asked
+  nothing at all and the network went away underneath it. What it sees is
+  the membership event the room fans out, which is the same thing it
+  would see if the person had left by hand.
+  """
+  be membership_changed(room: RoomId) => None
