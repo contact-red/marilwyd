@@ -2,7 +2,7 @@ use "files"
 use "ssl/net"
 use irc = "irc"
 
-primitive _Connect
+primitive Connect
   """
   Open one network's connection, or say why it cannot be opened.
 

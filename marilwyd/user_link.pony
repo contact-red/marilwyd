@@ -496,7 +496,7 @@ actor UserLink is (irc.IRCNotify & RoomMember)
       if m.command() != "PRIVMSG" then
         return
       end
-      if _IsCtcp(embedded, "ACTION") then
+      if IsCtcp(embedded, "ACTION") then
         // `/me`. An emote and a message differ only in how a client renders
         // them, so this is the same relay with a different msgtype — and
         // without it a third of what is said on a channel is invisible.
@@ -561,7 +561,7 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     nothing tries something else; one told a request failed shows the
     person an error for a question they did not ask.
     """
-    if not _IsCtcp(asked, "PING") then
+    if not IsCtcp(asked, "PING") then
       return
     end
     match irc.Wire.ctcp_reply(who, "PING", asked.argument())
@@ -682,7 +682,7 @@ actor UserLink is (irc.IRCNotify & RoomMember)
     if event.kind != "m.room.message" then
       return
     end
-    match _Said(event.content)
+    match Said(event.content)
     | (let text: String, let notice: Bool) => relay(text, notice)
     end
 
@@ -709,7 +709,7 @@ class _JoinDeadline is TimerNotify
     _link.expired()
     false
 
-primitive _Said
+primitive Said
   """
   What a room event says, when it says anything IRC can carry.
 
@@ -718,6 +718,10 @@ primitive _Said
   automated traffic indistinguishable from a person talking.
   """
   fun apply(content: String): ((String, Bool) | None) =>
+    """
+    The text to relay and whether it is a notice, or `None` when this
+    event says nothing IRC can carry.
+    """
     let sent =
       match JsonParser.parse(content)
       | let o: JsonObject => o
@@ -756,15 +760,19 @@ actor _IgnoreRelay is EventReceiver
   be event_sent(id: EventId) => None
   be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) => None
 
-primitive _IsCtcp
+primitive IsCtcp
   """
   Is this the CTCP command named?
 
-  Case-insensitively, because the protocol does not say which case a client
-  sends and they do not agree: comparing exactly answers `/me` for one
-  client and silence for another.
+  Case-insensitively, because the protocol does not say which case a
+  client sends and they do not agree: comparing exactly answers `/me` for
+  one client and silence for another. ASCII case only — a CTCP command is
+  a protocol keyword, so there is nothing else it could be.
   """
   fun apply(embedded: irc.Ctcp val, command: String): Bool =>
+    """
+    Whether `embedded` carries `command`, compared without regard to case.
+    """
     let sent = embedded.command()
     if sent.size() != command.size() then
       return false

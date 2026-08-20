@@ -329,9 +329,13 @@ class \nodoc\ iso _TestUnknownUserIsIndistinguishable is UnitTest
       } val)
 
 primitive _PasswordLogin
-  fun apply(password: String): String =>
+  fun apply(
+    password: String,
+    localpart: String = _TestUser.localpart())
+    : String
+  =>
     "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\","
-      + "\"user\":\"" + _TestUser.localpart() + "\"},"
+      + "\"user\":\"" + localpart + "\"},"
       + "\"password\":\"" + password + "\"}"
 
 // ------------------------------------------- unimplemented matrix endpoints

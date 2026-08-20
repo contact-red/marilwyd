@@ -614,3 +614,254 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
   be nick(n: irc.Nick) => None
   be quit(reason: String val = "") => None
   be disconnect() => None
+
+class \nodoc\ iso _TestOnlyTextAndNoticeLeave is UnitTest
+  """
+  `Said` is the whole of "messages plus notices, and nothing else".
+
+  Every other msgtype a client may send — an image, a file, a location —
+  carries a `body` that reads as ordinary text, so a relay that did not
+  check would put "photo.jpg" on the channel as though somebody had typed
+  it. Nothing downstream checks again.
+  """
+  fun name(): String => "links/only text and notices are carried out"
+
+  fun apply(h: TestHelper) =>
+    match Said("{\"msgtype\":\"m.text\",\"body\":\"hello\"}")
+    | (let text: String, let notice: Bool) =>
+      h.assert_eq[String]("hello", text)
+      h.assert_false(notice, "a message was carried as a notice")
+    else
+      h.fail("a plain message was not carried")
+    end
+
+    match Said("{\"msgtype\":\"m.notice\",\"body\":\"beep\"}")
+    | (let text: String, let notice: Bool) =>
+      h.assert_eq[String]("beep", text)
+      h.assert_true(notice, "a notice was carried as a message")
+    else
+      h.fail("a notice was not carried")
+    end
+
+    // A notice must stay a notice. On IRC the two are how a person tells
+    // automated traffic from somebody talking, and relaying a notice as
+    // an ordinary message makes a bot indistinguishable from a person.
+    for unwanted in
+      [ "{\"msgtype\":\"m.image\",\"body\":\"photo.jpg\"}"
+        "{\"msgtype\":\"m.file\",\"body\":\"accounts.xlsx\"}"
+        "{\"msgtype\":\"m.location\",\"body\":\"home\"}"
+        "{\"msgtype\":\"m.emote\",\"body\":\"waves\"}"
+        "{\"body\":\"no msgtype at all\"}"
+        "{\"msgtype\":\"m.text\"}"
+        "not json" ].values()
+    do
+      match Said(unwanted)
+      | (let text: String, _) =>
+        h.fail("carried something that is not a message: " + unwanted)
+      end
+    end
+
+class \nodoc\ iso _TestCtcpCommandsCompareWithoutCase is UnitTest
+  """
+  A CTCP command is compared without regard to case.
+
+  The protocol does not say which case a client sends and they do not
+  agree, so comparing exactly answers `/me` for one client and silence for
+  another.
+  """
+  fun name(): String => "links/a CTCP command compares without case"
+
+  fun apply(h: TestHelper) =>
+    for spelling in ["ACTION"; "action"; "AcTiOn"].values() do
+      match irc.Parse(":bob!u@h PRIVMSG #pony :\x01" + spelling + " waves\x01")
+      | let m: irc.Message val =>
+        match m.ctcp()
+        | let embedded: irc.Ctcp val =>
+          h.assert_true(
+            IsCtcp(embedded, "ACTION"),
+            "did not recognise ACTION spelled " + spelling)
+          h.assert_false(
+            IsCtcp(embedded, "PING"),
+            "recognised " + spelling + " as PING")
+        else
+          h.fail("no CTCP parsed from " + spelling)
+        end
+      else
+        h.fail("could not parse a CTCP with " + spelling)
+      end
+    end
+
+class \nodoc\ iso _TestANicknameComesFromTheLocalpart is UnitTest
+  """
+  `LocalpartOf` takes an id apart; `Localpart` says whether one is usable.
+  Two neighbouring names for two different questions.
+  """
+  fun name(): String => "links/a nickname is made from the local part"
+
+  fun apply(h: TestHelper) =>
+    h.assert_eq[String]("alice", LocalpartOf("@alice:example.test"))
+    h.assert_eq[String]("alice", LocalpartOf("@alice:example.test:8008"))
+    // No colon: there is nothing else the id could mean.
+    h.assert_eq[String]("@alice", LocalpartOf("@alice"))
+    h.assert_eq[String]("", LocalpartOf(""))
+
+class \nodoc\ iso _TestOnlyTheOwnersWordsGoOut is UnitTest
+  """
+  A connection relays its owner's words to the channel, and nobody else's.
+
+  The whole outbound path had no test: `Room.carry` was called from
+  nowhere in the suite and `UserLink.deliver` was never invoked, so
+  `event.sender != _user_id` — the single structural guard against a
+  bridged room amplifying itself — could be deleted with every test still
+  passing.
+
+  It is structural and not a configured check: this connection wears one
+  person's nickname, so relaying anybody else's words would put them on
+  IRC under the wrong name, and a ghost's words going back out is the
+  loop. Everyone else in the room has their own connection saying their
+  own words.
+  """
+  fun name(): String => "links/only the owner's own words go out"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    try
+      _OutboundRelay(h, _LinkFixture.create()?)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _OutboundRelay is (RoomCreationReceiver & EventReceiver
+  & irc.IRCSend & OutStream)
+  """
+  Carries a link into a room, then sends from three senders through it.
+  """
+  let _h: TestHelper
+  let _room: Room
+  let _user: User
+  let _link: UserLink
+  let _settled: irc.Registration val
+  embed _sent: Array[String] = _sent.create()
+
+  new create(h: TestHelper, given: _LinkFixture) =>
+    _h = h
+    _user = User("@alice:example.test")
+    _room = Room(given.room)
+    _settled = given.settled
+    _link =
+      UserLink(
+        "@alice:example.test",
+        BridgedNetwork("net", "irc.example.test", "6697", true, [], []),
+        "#pony",
+        NameMapping("{localpart}[marilwyd]", "irc_{network}_{nick}"),
+        given.homeserver,
+        this)
+    _room.created_by(
+      "@alice:example.test",
+      _user,
+      CreateRoomRequest(None, None, false),
+      this,
+      _user)
+
+  be room_created(id: RoomId) =>
+    _room.carry("@alice:example.test", _link)
+    _link .> carries(_room) .> irc_registered(this, _settled)
+    _feed(":alice[marilwyd]!u@h JOIN #pony")
+
+    // A ghost, so the room will accept from them.
+    _room.admit_ghost("@irc_net_bob:example.test", "bob")
+
+    // Two senders and two msgtypes, then a sentinel. Only the owner's
+    // own `m.text` should reach the channel: the ghost's words came *from*
+    // it, and an image is not something IRC carries.
+    //
+    // The sentinel goes through the room like the rest rather than
+    // straight to the link. Everything here is one chain of sender pairs
+    // — this actor to the room, the room to the link, the link back here
+    // — so the order is guaranteed the whole way. An earlier version
+    // relayed it directly and raced the fan-out.
+    _send("@alice:example.test", "m.text", "mine")
+    _send("@irc_net_bob:example.test", "m.text", "a ghost speaking")
+    _send("@alice:example.test", "m.image", "photo.jpg")
+    _send("@alice:example.test", "m.text", _Finished())
+
+  fun ref _send(who: String, kind: String, body: String) =>
+    _room.send(
+      who,
+      "m.room.message",
+      "{\"msgtype\":\"" + kind + "\",\"body\":\"" + body + "\"}",
+      this)
+
+  fun ref _feed(raw: String) =>
+    match irc.Parse(raw)
+    | let m: irc.Message val => _link.irc_message(this, m, _settled)
+    else
+      _h.fail("could not parse: " + raw)
+      _h.complete(false)
+    end
+
+  be event_sent(id: EventId) => None
+
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+    _h.fail("the room refused an event it should have taken")
+    _h.complete(false)
+
+  be privmsg(target: irc.Target, text: String val) =>
+    if text.contains(_Finished()) then
+      _check()
+      return
+    end
+    _sent.push(text)
+
+  be notice(target: irc.Target, text: String val) =>
+    _sent.push(text)
+
+  fun _check() =>
+    var mine = false
+    for line in _sent.values() do
+      if line.contains("mine") then
+        mine = true
+      end
+      _h.assert_false(
+        line.contains("a ghost speaking"),
+        "a ghost's words went back out to the channel: " + line)
+      _h.assert_false(
+        line.contains("photo.jpg"),
+        "something that is not a message was relayed: " + line)
+    end
+    _h.assert_true(mine, "the owner's own words did not reach the channel")
+    _h.complete(true)
+
+  be print(data: ByteSeq) => None
+  be write(data: ByteSeq) => None
+  be printv(data: ByteSeqIter) => None
+  be writev(data: ByteSeqIter) => None
+  be flush() => None
+
+  be room_refused() =>
+    _h.fail("the room was not created")
+    _h.complete(false)
+
+  be alias_taken() =>
+    _h.fail("an unnamed room claimed an alias")
+    _h.complete(false)
+
+  be send(line: irc.Line val) => None
+  be action(target: irc.Target, text: String val) => None
+
+  be join(
+    channels: Array[irc.Channel] val,
+    keys: Array[String val] val = [])
+  =>
+    None
+
+  be part(channels: Array[irc.Channel] val, reason: String val = "") => None
+  be nick(n: irc.Nick) => None
+  be quit(reason: String val = "") => None
+  be disconnect() => None
+
+primitive \nodoc\ _Finished
+  """
+  Relayed last, so that seeing it go out means everything before it has.
+  """
+  fun apply(): String => "zzz-that-is-everything"

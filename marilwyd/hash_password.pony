@@ -48,7 +48,7 @@ actor HashPassword
     """
     // A trailing newline is what a terminal adds, not part of the password.
     let password: String val = _password = recover iso String end
-    let trimmed = _Chomp(consume password)
+    let trimmed = Chomp(consume password)
 
     if trimmed.size() == 0 then
       _env.err.print("marilwyd: empty password refused")
@@ -76,9 +76,13 @@ actor HashPassword
     _env.out.print("    salt: \"" + ToHexString(salt) + "\"")
     _env.out.print("    hash: \"" + ToHexString(hash) + "\"")
 
-primitive _Chomp
+primitive Chomp
   """
   Drop one trailing newline, and a carriage return before it.
+
+  One, not all: a password may end in a newline the person meant, and
+  only the one the terminal added is not theirs. Both line endings,
+  because the password may have been piped from a file written anywhere.
   """
   fun apply(s: String): String =>
     var end': USize = s.size()
