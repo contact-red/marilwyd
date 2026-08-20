@@ -18,3 +18,16 @@ primitive NoEventId
   """
   fun message(): String =>
     "The CSPRNG is unavailable, so no event could be recorded"
+
+primitive BridgeDown
+  """
+  The room is bridged and its connection to the network is not carrying.
+
+  Refused rather than accepted, because a bridged room's whole content is
+  that connection: an event accepted while it is down would be recorded,
+  answered with an id, fanned out to the sender's own client — and never
+  reach the channel the sender was writing to. A client that is told the
+  message failed can send it again; one that is told it succeeded cannot.
+  """
+  fun message(): String =>
+    "The connection to the network is down, so nothing was sent"

@@ -352,3 +352,250 @@ primitive \nodoc\ _Sentinel
   What the tests feed last, and wait to see come back.
   """
   fun apply(): String => "that is all"
+
+class \nodoc\ iso _TestATransientDropRefusesSends is UnitTest
+  """
+  While the network is unreachable, the room stops accepting.
+
+  A bridged room's whole content is its connection, so an event taken
+  while that connection is down would be recorded, answered with an id,
+  shown to its author, and never reach the channel they wrote it to. A
+  client told the message failed can send it again; one told it succeeded
+  cannot.
+  """
+  fun name(): String => "links/a dropped connection refuses sends"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    try
+      _LinkLifecycle(h, _LinkFixture.create()?, _DropsThenSends)
+    else
+      _NoRandom(h)
+    end
+
+class \nodoc\ iso _TestAReconnectAcceptsAgain is UnitTest
+  """
+  And starts accepting again when the connection comes back.
+
+  The bouncer half: a drop is not a departure, so the member keeps the
+  room across a netsplit and only their sending pauses.
+  """
+  fun name(): String => "links/a reconnected connection accepts again"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    try
+      _LinkLifecycle(h, _LinkFixture.create()?, _DropsThenReturns)
+    else
+      _NoRandom(h)
+    end
+
+class \nodoc\ iso _TestATerminalDeathPartsAndIsForgotten is UnitTest
+  """
+  A connection that will not be retried takes its member out of the room
+  and has itself dropped.
+
+  The regression this exists for: the directory kept the entry, so the
+  next join was answered with the dead connection and *succeeded*. The
+  user was a member of a bridged room carrying nothing in either
+  direction, and every message they sent was answered `200` and
+  discarded.
+  """
+  fun name(): String => "links/a terminal death parts and is forgotten"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    try
+      _LinkLifecycle(h, _LinkFixture.create()?, _DiesForGood)
+    else
+      _NoRandom(h)
+    end
+
+primitive _DropsThenSends
+primitive _DropsThenReturns
+primitive _DiesForGood
+
+type _LifecycleCase is
+  (_DropsThenSends | _DropsThenReturns | _DiesForGood)
+
+actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
+  & StateReceiver & LinkOwner & irc.IRCSend & OutStream)
+  """
+  Drives a `UserLink` through connection failures with no socket.
+
+  The `irc` package documents `IRCSend` as the seam for exactly this, and
+  the notify half is just behaviours — so registration, a drop, a return
+  and a terminal death are all reachable without a network. None of this
+  path had a test before, which is why a dead connection answering the
+  next join as a live one shipped.
+  """
+  let _h: TestHelper
+  let _which: _LifecycleCase
+  let _room: Room
+  let _user: User
+  let _link: UserLink
+  let _settled: irc.Registration val
+  var _forgotten: Bool = false
+  var _parted: Bool = false
+  var _returned: Bool = false
+
+  new create(h: TestHelper, given: _LinkFixture, which: _LifecycleCase) =>
+    _h = h
+    _which = which
+    _user = User("@alice:example.test")
+    _room = Room(given.room)
+    _settled = given.settled
+    _link =
+      UserLink(
+        "@alice:example.test",
+        BridgedNetwork("net", "irc.example.test", "6697", true, [], []),
+        "#pony",
+        NameMapping("{localpart}[marilwyd]", "irc_{network}_{nick}"),
+        given.homeserver,
+        this)
+    _room.created_by(
+      "@alice:example.test",
+      _user,
+      CreateRoomRequest(None, None, false),
+      this,
+      _user)
+
+  be room_created(id: RoomId) =>
+    _room.carry("@alice:example.test", _link)
+    _link .> carries(_room) .> directed_by(this)
+    // Registered and on the channel, which is the state every case below
+    // starts from.
+    _link.irc_registered(this, _settled)
+    _feed(":alice[marilwyd]!u@h JOIN #pony")
+
+    // Nothing is asserted straight after telling the link. The link and
+    // this actor are two senders talking to one room, and nothing orders
+    // them: asking the room before the link's message has arrived asks it
+    // about a state it has not reached. Each case below waits for a
+    // signal that is causally after the message it cares about — the
+    // link's own log line, or its report to its owner.
+    match \exhaustive\ _which
+    | _DropsThenSends => _link.dropped("connection reset")
+    | _DropsThenReturns =>
+      _link.dropped("connection reset")
+      // The library reconnects and registers again, which is why the
+      // channel is joined from `irc_registered` rather than once.
+      _link.irc_registered(this, _settled)
+      _feed(":alice[marilwyd]!u@h JOIN #pony")
+    | _DiesForGood => _link.died("the network refused to have us")
+    end
+
+  be print(data: ByteSeq) =>
+    """
+    The link's own log line, which it writes after telling the room. That
+    ordering is what makes the question below answerable: this message is
+    causally after the room was told, so anything sent from here now
+    reaches the room after it too.
+    """
+    match _which
+    | _DropsThenSends =>
+      _room.send(
+        "@alice:example.test",
+        "m.room.message",
+        "{\"msgtype\":\"m.text\",\"body\":\"into the void\"}",
+        this)
+    | _DropsThenReturns =>
+      if _returned then
+        _room.send(
+          "@alice:example.test",
+          "m.room.message",
+          "{\"msgtype\":\"m.text\",\"body\":\"back again\"}",
+          this)
+      end
+      _returned = true
+    end
+
+  be write(data: ByteSeq) => None
+  be printv(data: ByteSeqIter) => None
+  be writev(data: ByteSeqIter) => None
+  be flush() => None
+
+  fun ref _feed(raw: String) =>
+    match irc.Parse(raw)
+    | let m: irc.Message val => _link.irc_message(this, m, _settled)
+    else
+      _h.fail("could not parse: " + raw)
+      _h.complete(false)
+    end
+
+  be event_sent(id: EventId) =>
+    match _which
+    | _DropsThenSends =>
+      _h.fail("a message was accepted while the connection was down")
+      _h.complete(false)
+    | _DropsThenReturns => _h.complete(true)
+    end
+
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+    match _which
+    | _DropsThenSends =>
+      _h.assert_true(
+        why is BridgeDown,
+        "refused, but not because the bridge was down")
+      _h.complete(true)
+    | _DropsThenReturns =>
+      _h.fail("a message was refused after the connection came back")
+      _h.complete(false)
+    end
+
+  be forget(user_id: String, network: String, channel: String) =>
+    """
+    The link reporting its own death — sent after it parts its owner, so
+    the room has already been told by the time this arrives.
+    """
+    _forgotten = true
+    _h.assert_eq[String]("@alice:example.test", user_id)
+    _h.assert_eq[String]("#pony", channel)
+    _room.members("@alice:example.test", this)
+
+  be state_listed(events: Array[RoomEvent] val) =>
+    for event in events.values() do
+      if (event.kind == "m.room.member")
+        and (event.state_key is None)
+      then
+        continue
+      end
+      match event.state_key
+      | "@alice:example.test" =>
+        if event.content.contains("\"membership\":\"leave\"") then
+          _parted = true
+        end
+      end
+    end
+    _h.assert_true(_parted, "a terminal death left the member in the room")
+    _h.assert_true(_forgotten, "a terminal death was not reported upward")
+    _h.complete(true)
+
+  be state_refused(why: NotInRoom) =>
+    // Parted, which is what this case is checking for.
+    _h.assert_true(_forgotten, "a terminal death was not reported upward")
+    _h.complete(true)
+
+  be room_refused() =>
+    _h.fail("the room was not created")
+    _h.complete(false)
+
+  be alias_taken() =>
+    _h.fail("an unnamed room claimed an alias")
+    _h.complete(false)
+
+  be send(line: irc.Line val) => None
+  be privmsg(target: irc.Target, text: String val) => None
+  be notice(target: irc.Target, text: String val) => None
+  be action(target: irc.Target, text: String val) => None
+
+  be join(
+    channels: Array[irc.Channel] val,
+    keys: Array[String val] val = [])
+  =>
+    None
+
+  be part(channels: Array[irc.Channel] val, reason: String val = "") => None
+  be nick(n: irc.Nick) => None
+  be quit(reason: String val = "") => None
+  be disconnect() => None

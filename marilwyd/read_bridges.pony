@@ -1,4 +1,5 @@
 use "files"
+use irc = "irc"
 use "yaml"
 
 primitive ReadBridges
@@ -81,10 +82,16 @@ primitive ReadBridges
       for (j, channel) in network.channels.pairs() do
         let at: String = where' + " channels[" + j.string() + "]"
 
-        if not channel.channel.contains("#") then
+        // Checked against the library that has to send it, not against a
+        // hash somewhere in the string. A name `irc.Channels` refuses
+        // means no JOIN is ever sent and every join of that room waits
+        // out its deadline instead — a silent runtime loss where this is
+        // a named refusal at startup.
+        match irc.Channels(channel.channel)
+        | let _: irc.InvalidName =>
           return StartupError(
             "bridge-channel",
-            at + ": an IRC channel name begins with '#'")
+            at + ": not a usable IRC channel name")
         end
 
         // The alias defaults to the room's name, which is what an operator

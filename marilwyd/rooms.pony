@@ -579,7 +579,7 @@ actor _SendEventHandler is
   be event_sent(id: EventId) =>
     _respond(stallion.StatusOK, EventSent(id))
 
-  be event_refused(why: (NotInRoom | NoEventId)) =>
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
     match \exhaustive\ why
     | NotInRoom =>
       _respond(
@@ -589,6 +589,14 @@ actor _SendEventHandler is
       _respond(
         stallion.StatusInternalServerError,
         MatrixError("M_UNKNOWN", NoEventId.message()))
+    | BridgeDown =>
+      // 502, because the failure is a server marilwyd depends on rather
+      // than anything the client did. `M_UNKNOWN` for the errcode: the
+      // specification has no code for this, and inventing one a client
+      // cannot look up would say less than the message does.
+      _respond(
+        stallion.StatusBadGateway,
+        MatrixError("M_UNKNOWN", BridgeDown.message()))
     end
 
   fun ref _respond(status: stallion.Status, body: String) =>

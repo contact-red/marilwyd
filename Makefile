@@ -51,8 +51,13 @@ build/marilwyd_test: $(SOURCES) $(TEST_SOURCES)
 	$(GET_DEPENDENCIES_WITH)
 	corral run -- ponyc $(PONYC_FLAGS) -o build marilwyd_test
 
+# Under a wall clock. `long_test` bounds a test that reaches its own
+# deadline; a test that spins or blocks never does, and the runner then
+# hangs instead of failing — which this suite has already done once, and a
+# hung run reads as a passing one until somebody looks. CI would otherwise
+# sit until its own job timeout with no failing test to point at.
 test: build/marilwyd_test
-	build/marilwyd_test
+	timeout 300 build/marilwyd_test
 
 # No ssl= needed: pony-lint reads the sources and does not link. It runs
 # through corral so it can resolve the dependency packages.

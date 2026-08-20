@@ -31,6 +31,12 @@ actor Room
   // another participant — it is the same person, reachable from the other
   // side.
   embed _carrying: Map[String, RoomMember tag] = _carrying.create()
+  // Whose carrier is not currently carrying. A member is in `_carrying`
+  // from the moment their connection is made and in here whenever that
+  // connection cannot reach the network, which are different questions:
+  // the first says who to fan out to, the second says whether doing so
+  // would accomplish anything.
+  embed _stalled: Set[String] = _stalled.create()
   var _position: USize = 0
   // Read positions and who is typing. Not in `RoomState`, which is what a
   // room *is* — these are what it is doing at one moment, they are never
@@ -196,6 +202,7 @@ actor Room
         (_, let link: RoomMember tag) = _carrying.remove(user_id)?
         link.departed(_state.id.string())
       end
+      _stalled.unset(user_id)
     end
     receiver.membership_changed(_state.id)
 
@@ -228,6 +235,27 @@ actor Room
         user_id)
     end
 
+  be carrier_stalled(user_id: String) =>
+    """
+    This member's connection cannot reach the network at the moment.
+
+    Their membership is untouched: a connection that drops and comes back
+    is what a bouncer does, and parting somebody from a room over a
+    netsplit would make a Matrix room noisier than the channel it mirrors.
+    What changes is that `send` stops accepting from them, so nothing is
+    recorded that the channel will never see.
+    """
+    if _carrying.contains(user_id) then
+      _stalled.set(user_id)
+    end
+
+  be carrier_carrying(user_id: String) =>
+    """
+    This member's connection is on the channel again, so `send` accepts
+    from them once more.
+    """
+    _stalled.unset(user_id)
+
   be part_ghost(user_id: String) =>
     """
     A far-side participant left the channel.
@@ -253,6 +281,14 @@ actor Room
     """
     if not _state.is_member(user_id) then
       receiver.event_refused(NotInRoom)
+      return
+    end
+    // Nothing is recorded while the sender's own connection is down. A
+    // bridged room's content is that connection, so an event accepted
+    // here would be answered with an id, shown to its author, and never
+    // reach the channel they wrote it to.
+    if _stalled.contains(user_id) then
+      receiver.event_refused(BridgeDown)
       return
     end
     match _append(user_id, kind, content, None)

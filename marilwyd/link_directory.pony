@@ -66,10 +66,18 @@ actor LinkDirectory
     match \exhaustive\ _Connect(_env, network, link where nicks' = nicks)
     | let opened: irc.IRC =>
       _links(key) = link
-      // The room before the connection, so a line arriving the instant
-      // after registration has somewhere to go.
-      link .> carries(room) .> connect(opened, receiver)
+      // The room and this directory before the connection, so a line
+      // arriving the instant after registration has somewhere to go and
+      // a death the instant after that has somewhere to report.
+      link .> carries(room) .> directed_by(this) .> connect(opened, receiver)
     | let e: StartupError =>
+      // Said, not swallowed. This is the operator's only sight of a
+      // bridge that cannot be built at all — a bad host, a certificate
+      // store that would not load — and the client learns only that its
+      // join was refused.
+      _env.out.print(
+        "marilwyd: " + user_id + " cannot reach " + network.name + ": "
+          + e.message)
       receiver.join_refused(channel.channel)
     end
 
@@ -81,6 +89,24 @@ actor LinkDirectory
     try
       (_, let link: UserLink tag) = _links.remove(key)?
       link.part()
+    end
+
+  be forget(user_id: String, network: String, channel: String) =>
+    """
+    A connection reporting its own death, so the next join opens a fresh
+    one.
+
+    Without this the entry outlived the connection, and `open`'s fast
+    path — which exists so that rejoining a room does not register a
+    second time — answered the next join with a corpse. That join
+    succeeded, the room accepted messages, and none of them went
+    anywhere.
+
+    No `part()` on the way out: the connection is already gone, and it is
+    the caller.
+    """
+    try
+      (_, _) = _links.remove(_key(user_id, network, channel))?
     end
 
   fun _key(user_id: String, network: String, channel: String): String =>
