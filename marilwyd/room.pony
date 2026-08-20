@@ -122,6 +122,22 @@ actor Room
       end
     end
 
+    // How the room may be entered, written whichever way it answers,
+    // because a client shows a closed room differently from an open one
+    // and a room that says nothing reads as neither.
+    //
+    // A room is invite-only unless it was asked to be findable. Publishing
+    // one or giving it an alias is asking for people to arrive without
+    // being handed anything, which is the definition of public here.
+    match _append(
+      user_id,
+      "m.room.join_rules",
+      "{\"join_rule\":\"" + (if wanted.open() then "public" else "invite" end)
+        + "\"}",
+      "")
+    | None => return None
+    end
+
     // Written as state so a client renders `#pony:server` beside the room
     // rather than a room id. The directory's map is what resolves an
     // alias; this event is what makes the room say it has one, and the two
@@ -174,7 +190,19 @@ actor Room
     Admit a member. Joining a room you are already in changes nothing and
     succeeds, as the specification requires — appending a second identical
     membership would wake every member to say nothing.
+
+    A room that did not ask to be found is entered by invitation only. A
+    member is let back in whatever the rule says, because they are already
+    in — the rule governs arriving, not staying.
     """
+    if not (_state.is_member(user_id)
+      or _state.open()
+      or _state.is_invited(user_id))
+    then
+      receiver.membership_refused(NotInvited)
+      return
+    end
+
     if not _state.is_member(user_id) then
       _admit(user_id, user)
     end
@@ -184,6 +212,58 @@ actor Room
     // somebody and forget to.
     match watching
     | let account: User tag => _watching(user_id.clone()) = account
+    end
+    receiver.membership_changed(_state.id)
+
+  be invite(
+    user_id: String,
+    by: String,
+    account: (User tag | None),
+    receiver: MembershipReceiver tag)
+  =>
+    """
+    Let somebody in who is not in yet.
+
+    Written as their membership event, so the room's own state is what
+    says who may enter and a client reading the room sees the invitation
+    like any other membership. Nothing is delivered to them here: an
+    invitation is not the room's content, and they are not a member until
+    they accept.
+
+    Only a member may invite. There is nothing weaker to check — marilwyd
+    has no power levels — and without it a room id would let a stranger
+    add people to a room they are not in.
+
+    `account` is the invitee's actor when they have one, which is how the
+    offer reaches their client. An account that has never signed in during
+    this run has none, and the invitation is still recorded — it is the
+    room's state that decides who may enter, not who was told — so they
+    may accept it if they learn of the room another way. Nothing here
+    survives a restart, and neither does this.
+    """
+    if not _state.is_member(by) then
+      receiver.membership_refused(NotInvited)
+      return
+    end
+
+    if _state.is_member(user_id) or _state.is_invited(user_id) then
+      // Already in, or already asked. Answered as success, because the
+      // state the caller wanted is the state that holds.
+      receiver.membership_changed(_state.id)
+      return
+    end
+
+    _state.invite(user_id)
+    _append(
+      user_id,
+      "m.room.member",
+      "{\"membership\":\"invite\"}",
+      user_id)
+    // After the event, so what they are shown includes the invitation
+    // that named them.
+    match account
+    | let who: User tag =>
+      who.invited(_state.id.string(), _state.state_events())
     end
     receiver.membership_changed(_state.id)
 

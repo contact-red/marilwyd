@@ -637,14 +637,20 @@ class \nodoc\ iso _TestJoiningWhileSyncingIsTold is UnitTest
       _NoRandom(h)
     end
 
-actor \nodoc\ _JoinWhileSyncing is (MembershipReceiver & SyncReceiver)
+actor \nodoc\ _JoinWhileSyncing is
+  (MembershipReceiver & SyncReceiver & RoomCreationReceiver)
   """
   Parks a sync at a position, then joins the room, then reads what the
   parked sync was answered with.
+
+  The room is made by somebody else and published, because the person
+  joining here is not its creator and a room that was never offered to
+  anyone is not one a stranger may enter.
   """
   let _h: TestHelper
   let _device: Device
   let _user: User
+  let _maker: User
   let _room: Room
 
   new create(
@@ -656,16 +662,33 @@ actor \nodoc\ _JoinWhileSyncing is (MembershipReceiver & SyncReceiver)
     _h = h
     _device = Device(device_id, epoch)
     _user = User("@alice:example.test")
+    _maker = User("@maker:example.test")
     _room = Room(id)
     _user.attach("laptop", _device)
+    _room.created_by(
+      "@maker:example.test",
+      _maker,
+      CreateRoomRequest(None, None, true),
+      this,
+      _maker)
+
+  be room_created(id: RoomId) =>
     // A position, so this is the incremental case rather than a first
     // sync — the case that was broken.
     _device.sync(USize(0), 25_000, this)
     _room.join("@alice:example.test", _user, this)
 
+  be room_refused() =>
+    _h.fail("the room was not created")
+    _h.complete(false)
+
+  be alias_taken() =>
+    _h.fail("an unnamed room claimed an alias")
+    _h.complete(false)
+
   be membership_changed(room: RoomId) => None
 
-  be membership_refused(why: NoSuchRoom) =>
+  be membership_refused(why: NotInvited) =>
     _h.fail("joining was refused")
     _h.complete(false)
 

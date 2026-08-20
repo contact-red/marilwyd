@@ -270,6 +270,8 @@ actor Main is TestList
     test(_TestAMalformedRoomIdIsRefused)
     test(_TestEventContentMustBeAnObject)
     test(_TestRoomMembershipComesAndGoes)
+    test(_TestAClosedRoomRefusesAStranger)
+    test(_TestAnInvitationLetsThemIn)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost
@@ -751,6 +753,190 @@ primitive _ServeTwoAccounts
       h.fail(e.message)
       h.complete(false)
     end
+
+primitive _ServeSteps
+  """
+  Log two accounts in, then run a sequence of requests against one server.
+
+  The nested harnesses run out at three requests, and a flow worth
+  testing is usually longer than that — an invitation is make a room,
+  offer it, accept it, which is three on top of two logins. Rather than
+  nest further, the steps are a list and a runner walks them.
+
+  Each step is given both tokens and every response so far, so a step can
+  read an id out of an earlier answer. `check` receives the responses in
+  order once they are all in.
+  """
+  fun apply(
+    h: TestHelper,
+    steps: Array[{(String, String, Array[String] val): String} val] val,
+    check: {(Array[String] val)} val)
+  =>
+    h.long_test(20_000_000_000)
+
+    let config =
+      match _TestConfig(h)
+      | let c: Config => c
+      else
+        return
+      end
+
+    let epoch =
+      match MakeStreamEpoch()
+      | let e: StreamEpoch => e
+      else
+        h.fail("the CSPRNG is unavailable")
+        h.complete(false)
+        return
+      end
+
+    match \exhaustive\ Routes(
+      config,
+      SessionRegistry(epoch),
+      RoomDirectory(config.homeserver),
+      LinkDirectory(
+        h.env, config.homeserver, NameMapping("{localpart}", "{nick}")),
+      epoch)
+    | let built: hobby.BuiltApplication =>
+      let connect_auth = lori.TCPConnectAuth(h.env.root)
+      let notify =
+        _TestNotify(
+          {(port, server)(connect_auth, steps, check, h) =>
+            _TestClient(
+              connect_auth,
+              port,
+              _Post(
+                "/_matrix/client/v3/login",
+                _PasswordLogin(_TestUser.password())),
+              server,
+              {(one)(connect_auth, port, steps, check, h, server) =>
+                match _TokenFrom(one)
+                | let mine: String =>
+                  _TestClient(
+                    connect_auth,
+                    port,
+                    _Post(
+                      "/_matrix/client/v3/login",
+                      _PasswordLogin(
+                        _OtherUser.password(), _OtherUser.localpart())),
+                    server,
+                    {(two)(connect_auth, port, steps, check, h, server, mine)
+                    =>
+                      match _TokenFrom(two)
+                      | let theirs: String =>
+                        _StepRunner(
+                          h,
+                          connect_auth,
+                          port,
+                          server,
+                          steps,
+                          check,
+                          mine,
+                          theirs)
+                      else
+                        h.fail("the second account could not log in: " + two)
+                        h.complete(false)
+                        server.dispose()
+                      end
+                    } val
+                    where close_server = false)
+                else
+                  h.fail("login did not yield a token: " + one)
+                  h.complete(false)
+                  server.dispose()
+                end
+              } val
+              where close_server = false)
+          } val)
+      h.dispose_when_done(
+        hobby.Server(
+          lori.TCPListenAuth(h.env.root),
+          built,
+          notify
+          where host = _TestHost(), port = config.bind_port,
+                config = ServerLimits(_TestHost(), config.bind_port)))
+    | let e: hobby.ConfigError =>
+      h.fail(e.message)
+      h.complete(false)
+    end
+
+actor \nodoc\ _StepRunner
+  """
+  Walks a list of requests against one live server, one at a time.
+
+  Sequential and not concurrent: a step is allowed to depend on what an
+  earlier one answered, which is the whole reason this exists.
+  """
+  let _h: TestHelper
+  let _auth: lori.TCPConnectAuth
+  let _port: String
+  let _server: hobby.Server tag
+  let _steps: Array[{(String, String, Array[String] val): String} val] val
+  let _check: {(Array[String] val)} val
+  let _mine: String
+  let _theirs: String
+  embed _answers: Array[String] = _answers.create()
+
+  new create(
+    h: TestHelper,
+    auth: lori.TCPConnectAuth,
+    port: String,
+    server: hobby.Server tag,
+    steps: Array[{(String, String, Array[String] val): String} val] val,
+    check: {(Array[String] val)} val,
+    mine: String,
+    theirs: String)
+  =>
+    _h = h
+    _auth = auth
+    _port = port
+    _server = server
+    _steps = steps
+    _check = check
+    _mine = mine
+    _theirs = theirs
+    _next()
+
+  be answered(response: String) =>
+    _answers.push(response)
+    _next()
+
+  fun ref _next() =>
+    // Copied out rather than built in a `recover`: `_answers` is `ref` and
+    // so reads as `tag` inside one, while a `String val` passes freely.
+    let gathered = recover iso Array[String] end
+    for answer in _answers.values() do
+      gathered.push(answer)
+    end
+    let seen: Array[String] val = consume gathered
+
+    if _answers.size() == _steps.size() then
+      _check(seen)
+      _h.complete(true)
+      _server.dispose()
+      return
+    end
+
+    let request =
+      try
+        _steps(_answers.size())?(_mine, _theirs, seen)
+      else
+        _h.fail("a step could not be built")
+        _h.complete(false)
+        _server.dispose()
+        return
+      end
+
+    // `this` as a `tag`, which is all a lambda may capture of an actor
+    // and all this needs: the callback only sends a message back.
+    let runner: _StepRunner tag = this
+    _TestClient(
+      _auth,
+      _port,
+      request,
+      _server,
+      {(response)(runner) => runner.answered(response) } val
+      where close_server = false)
 
 primitive _RoomFrom
   """

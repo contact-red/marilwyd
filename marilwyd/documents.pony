@@ -310,11 +310,56 @@ primitive SyncDocument
           end
           out.append("],\"limited\":false}}")
         end
-        out.append("}}")
+        out.append("}")
+        _Invites(out, view, false)
+        out.append("}")
+      end
+      if (grouped.size() == 0) and (view.invites.size() > 0) then
+        // An invitation with no joined room to hang it off. A client that
+        // has been asked somewhere and is in nothing else sees only this.
+        out.append(",\"rooms\":{")
+        _Invites(out, view, true)
+        out.append("}")
       end
       out.append("}")
       out
     end
+
+primitive _Invites
+  """
+  The `invite` block of a sync document.
+
+  `invite_state` and not `state`: it is the same shape a client reads a
+  joined room's state from and a different key, because what it carries is
+  a stripped view of a room the reader is not in.
+  """
+  fun apply(out: String ref, view: SyncView, first: Bool) =>
+    if view.invites.size() == 0 then
+      return
+    end
+    if not first then
+      out.append(",")
+    end
+    out.append("\"invite\":{")
+    var room_first = true
+    for (room_id, state) in view.invites.values() do
+      if not room_first then
+        out.append(",")
+      end
+      room_first = false
+      out.append(JsonPrinter.print(room_id))
+      out.append(":{\"invite_state\":{\"events\":[")
+      var event_first = true
+      for event in state.values() do
+        if not event_first then
+          out.append(",")
+        end
+        event_first = false
+        out.append(event.render())
+      end
+      out.append("]}}")
+    end
+    out.append("}")
 
 primitive PushRules
   """
@@ -406,9 +451,9 @@ primitive RoomMembers
   not the one `/state` uses — a client reads the two through different code
   and neither accepts the other's field.
 
-  Every membership is a join here, because marilwyd has no other kind: no
-  invites, no bans, and a leave removes the event rather than rewriting it.
-  A client filtering by `not_membership=leave`, which Element sends, gets
+  A membership here is a join or an invitation, and never a leave: there
+  are no bans, and leaving removes the event rather than rewriting it. A
+  client filtering by `not_membership=leave`, which Element sends, gets
   the same answer either way.
   """
   fun apply(events: Array[RoomEvent] val): String =>

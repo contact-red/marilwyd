@@ -25,6 +25,11 @@ actor Device
   // array, a second room's state replaced the first's rather than joining
   // it, and a client signing in saw exactly one of its rooms.
   embed _state: Map[String, Array[RoomEvent] val] = _state.create()
+  // Rooms this device has been asked to join and has not answered. Kept
+  // apart from `_state`, which is for rooms it is in: the two are read
+  // into different halves of a sync document, and a client that confused
+  // them would render a room it may not read.
+  embed _invites: Map[String, Array[RoomEvent] val] = _invites.create()
   // The position each room's state was last set at, so a client that
   // already has a position is still told about a room it has only just
   // joined. Without it, state travelled on a fresh sync alone and joining
@@ -163,6 +168,12 @@ actor Device
     _state(key) = state'
     _position = _position + 1
     _described(key) = _position
+    // Being in a room settles the invitation to it, whichever way it was
+    // answered. Left behind, a client would be shown a room it is already
+    // in as one it has been asked to join.
+    try
+      (_, _) = _invites.remove(key)?
+    end
     _wake()
 
   be ephemeral(room_id: String, current: Ephemeral) =>
@@ -176,6 +187,17 @@ actor Device
     _ephemeral(key) = current
     _position = _position + 1
     _ephemeral_at(key) = _position
+    _wake()
+
+  be invited(room_id: String, state': Array[RoomEvent] val) =>
+    """
+    Somebody asked this device's owner into a room.
+
+    Woken like anything else a client needs to know about: an invitation
+    a client is not told of until its next message is an invitation it
+    appears to have missed.
+    """
+    _invites(room_id.clone()) = state'
     _wake()
 
   be forget_room(room_id: String) =>
@@ -224,7 +246,7 @@ actor Device
     _acknowledge_to_device(since)
 
     if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0)
-      or (since is None) or _account_unseen(since)
+      or (since is None) or _account_unseen(since) or (_invites.size() > 0)
       or (_describing(since).size() > 0)
       or (_ephemeral_since(since).size() > 0)
     then
@@ -419,6 +441,21 @@ actor Device
       _answer(receiver, since)
     end
 
+  fun _pending_invites(): Array[(String, Array[RoomEvent] val)] val =>
+    """
+    Every unanswered invitation, on every sync until it is answered.
+
+    Not stamped like room state is. An invitation is a standing offer
+    rather than something that happened at a position, and a client that
+    was told once and lost it would have no way to ask again — there is no
+    endpoint that lists them.
+    """
+    let found = recover iso Array[(String, Array[RoomEvent] val)] end
+    for (room_id, state') in _invites.pairs() do
+      found.push((room_id, state'))
+    end
+    consume found
+
   fun ref _answer(receiver: SyncReceiver tag, since: (USize | None)) =>
     let owed = _pending.since(since)
     // State travels only when the client has no usable position. A client
@@ -440,4 +477,5 @@ actor Device
         account,
         _to_device_since(since),
         _ephemeral_since(since),
+        _pending_invites(),
         (_pending.dropped() + _to_device_dropped()) > 0))

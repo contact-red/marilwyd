@@ -8,9 +8,13 @@ class val RoomId is Stringable
   a user id are all text, and they arrive at handlers side by side where
   nothing but parameter order would keep them apart.
 
-  **It is also a capability.** Anyone who knows a room id can join the room
-  — there are no invitations — so an id is closer to a bearer token than to
-  a label, and `SECURITY.md` records what follows from that. It is
+  **It is half of a capability.** A room that asked to be found — one with
+  an alias, or a place in the public directory — is entered by anyone
+  holding its id, so for those an id is closer to a bearer token than to a
+  label, and `SECURITY.md` records what follows from that. A room that
+  asked for neither also wants an invitation, so an id alone does not open
+  it. Neither half is worth much without the other: the invitation names a
+  room the holder must still be able to name back. It is
   `Stringable` regardless, because a client must be told its own room ids
   and a server that could not print one would be useless; what marilwyd
   does instead is decline to write them to the request log.

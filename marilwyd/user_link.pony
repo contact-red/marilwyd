@@ -804,3 +804,8 @@ actor \nodoc\ _IgnoreDeparture is MembershipReceiver
   would see if the person had left by hand.
   """
   be membership_changed(room: RoomId) => None
+
+  be membership_refused(why: NotInvited) =>
+    // Unreachable: this parts its own owner, who is a member by having
+    // been carried, and leaving is not gated.
+    None
