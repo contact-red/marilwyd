@@ -76,8 +76,7 @@ actor _ResolveAliasHandler is
         // question get two different answers.
         match _session
         | let s: Session =>
-          _rooms.for_user(
-            alias.string(), s.user_id, _homeserver.user_id("bridge"), this)
+          _rooms.for_user(alias.string(), s.user_id, this)
         end
       | let why: InvalidAlias =>
         _respond(
@@ -95,6 +94,17 @@ actor _ResolveAliasHandler is
 
   be room_identified(id: RoomId) =>
     _respond(stallion.StatusOK, AliasResolved(id.string(), _server_name))
+
+  be no_room_made() =>
+    """
+    The channel exists and its room could not be written, which is this
+    server's failure and not the client's.
+    """
+    _respond(
+      stallion.StatusInternalServerError,
+      MatrixError(
+        "M_UNKNOWN",
+        "The room for that channel could not be created"))
 
   be no_such_channel() =>
     // Not a channel, so it may be an ordinary room's alias.

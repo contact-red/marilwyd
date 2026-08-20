@@ -52,7 +52,7 @@ primitive ServerLimits
       port
       where max_body_size' = MaxRequestBody())
 
-actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
+actor Main is (hobby.ServerNotify & DeclaredChannelReceiver)
   """
   Startup, and the only place marilwyd writes to stdout or stderr.
   """
@@ -111,21 +111,15 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
           NameMapping("{localpart}", "{nick}")
         end)
 
-    // Declared rooms are made before the listener opens, so a client that
-    // connects the instant marilwyd is up finds them already there.
+    // Declaring makes no room. A channel is something a person can get a
+    // room for, and each person gets their own the first time they enter
+    // — so what happens here is that the alias becomes enterable, and
+    // nothing else.
     match config.bridges
     | let bridges: Bridges =>
       for network in bridges.networks.values() do
-        // The room is created on behalf of the bridge's own identity —
-        // the same one it will use on IRC, so a room's creator is the
-        // thing that speaks in it rather than whichever person happened
-        // to be running the server.
-        let creator =
-          config.homeserver.user_id(
-            bridges.mapping.matrix_localpart(
-              network.name, try network.nicks(0)? else network.name end))
         for channel in network.channels.values() do
-          rooms.declare(channel, network, creator, this)
+          rooms.declare(channel, network, this)
         end
       end
     end
@@ -155,9 +149,25 @@ actor Main is (hobby.ServerNotify & DeclaredRoomReceiver)
       "marilwyd: " + channel.channel + " is " + channel.alias.string())
 
   be declaration_refused(channel: String) =>
+    """
+    A declared channel could not be recorded, which is a configuration
+    marilwyd cannot honour.
+
+    `ReadBridges` rejects a repeated alias across the whole file, so this
+    is only reachable if a channel's alias collides with something else in
+    the directory — nothing at startup, today. It is still answered
+    rather than assumed impossible, because the check it duplicates lives
+    in another file.
+
+    `exitcode` records a status and stops nothing: a bound listener goes
+    on serving. Refusing to bind at all is what the other startup failures
+    do, and this one arrives too late for that, so it says plainly that
+    the channel is missing rather than implying the process is going down.
+    """
     _env.err.print(
-      "marilwyd: could not declare a room for " + channel
-        + "; its id or alias is already in use")
+      "marilwyd: " + channel + " was not declared; its alias is already in"
+        + " use, so that channel is not bridged and the rest of this"
+        + " server is running without it")
     _env.exitcode(1)
 
   be listening(server: hobby.Server, host: String, service: String) =>

@@ -8,9 +8,10 @@ primitive ReadBridges
 
   Everything a bridge needs that marilwyd cannot invent: which server,
   which channels, and what a name on one side is called on the other. It
-  holds no secret today — the test network wants no password — but it does
-  hold declared room ids, and a room id is the entire access control on a
-  room. It is read under the credentials file's posture for that reason.
+  holds no secret today — the test network wants no password — but it
+  decides which traffic leaves this server for a network marilwyd does not
+  run, and a file that decides that is worth the same care as one holding
+  hashes. It is read under the credentials file's posture for that reason.
 
   As with the credentials file, parsing and shape are the `yaml` package's
   and what a value has to *mean* is marilwyd's. A channel with an alias

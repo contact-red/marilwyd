@@ -145,15 +145,15 @@ actor Room
     wanted: CreateRoomRequest,
     channel: BridgedChannel,
     network: BridgedNetwork,
-    receiver: DeclaredRoomReceiver tag)
+    receiver: DeclaredChannelReceiver tag)
   =>
     """
-    Write the events that make a declared room a room, and admit nobody.
+    Write the events that make a bridged room a room, and admit nobody.
 
-    `created_by` cannot serve here: it admits its creator, and a room
-    declared at startup has no member to admit — the account it is created
-    on behalf of is the bridge, which has no `User` actor until it
-    connects.
+    `created_by` cannot serve here: it admits its creator, and admitting
+    anyone is the join's business. A bridged room's member arrives by
+    joining the channel, which may yet fail — so the room is written
+    first and stays empty until the far side has agreed.
     """
     match _write_room(creator, wanted)
     | None =>

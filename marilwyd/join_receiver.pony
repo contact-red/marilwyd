@@ -8,11 +8,6 @@ interface tag JoinReceiver
     the connection that will carry what its owner says.
     """
 
-  be join_allowed(channel: String)
-    """
-    The channel was already open, so nothing new was connected.
-    """
-
   be join_refused(channel: String)
     """
     It was not, so the user is not in the room at all.
