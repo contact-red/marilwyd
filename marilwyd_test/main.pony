@@ -178,6 +178,7 @@ actor Main is TestList
     test(_TestAccountDataIsNotResent)
     test(Property1UnitTest[String](_TestSplitNeverExceedsTheBudget))
     test(Property1UnitTest[String](_TestSplitLosesNothing))
+    test(_TestLineCountIsNotFooledByNewlines)
     test(Property1UnitTest[String](_TestSplitNeverAnswersEmptyPieces))
     test(_TestNewlinesBecomeLines)
     test(_TestShortTextIsOneLine)
@@ -228,6 +229,7 @@ actor Main is TestList
     test(_TestATransientDropRefusesSends)
     test(_TestAReconnectAcceptsAgain)
     test(_TestATerminalDeathPartsAndIsForgotten)
+    test(_TestALongMessageIsRefusedByABridge)
     test(_TestAPlainNameIsUnchanged)
     test(_TestValidUtf8PassesGoodText)
     test(_TestValidUtf8ReplacesBadBytes)
@@ -274,6 +276,7 @@ actor Main is TestList
     test(_TestAnInvitationLetsThemIn)
     test(_TestARoomAskedToBeEncryptedIsEncrypted)
     test(_TestAnOrdinaryRoomIsNotEncrypted)
+    test(_TestAnOrdinaryRoomTakesALongMessage)
 
 // ---------------------------------------------------------------- harness
 primitive _TestHost

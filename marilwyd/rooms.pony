@@ -670,7 +670,7 @@ actor _SendEventHandler is
   be event_sent(id: EventId) =>
     _respond(stallion.StatusOK, EventSent(id))
 
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown | TooManyLines)) =>
     match \exhaustive\ why
     | NotInRoom =>
       _respond(
@@ -688,6 +688,12 @@ actor _SendEventHandler is
       _respond(
         stallion.StatusBadGateway,
         MatrixError("M_UNKNOWN", BridgeDown.message()))
+    | TooManyLines =>
+      // The client's, unlike the one above: what it sent is too long for
+      // where this room goes, and shortening it is something it can do.
+      _respond(
+        stallion.StatusBadRequest,
+        MatrixError("M_TOO_LARGE", TooManyLines.message()))
     end
 
   fun ref _respond(status: stallion.Status, body: String) =>

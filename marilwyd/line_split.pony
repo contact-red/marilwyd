@@ -9,6 +9,28 @@ primitive IrcLineBudget
   """
   fun apply(): USize => 425
 
+primitive MaxIrcLines
+  """
+  How many IRC lines one Matrix message may become.
+
+  A Matrix message is one thing a person wrote and an IRC line is a fixed
+  budget of bytes, so the ratio between them is whatever the writer's
+  newlines and length make it. `MaxEventBody` allows 32 kB, which at
+  `IrcLineBudget` is about seventy-seven lines — and far more than that if
+  the text is newline-dense, because newlines split first and always.
+
+  The connection paces what it sends, so a long message does not arrive as
+  a flood; it arrives over minutes, and past the send queue's depth the
+  rest is dropped. Either way the channel gets a fragment of what was
+  written, and the person writing it is told nothing.
+
+  Sixteen is what a person plausibly types into a chat window at once.
+  Past it, the message is refused rather than sent in part: a paragraph
+  that arrives as its first half is worse than one that did not arrive,
+  because only one of those can be sent again.
+  """
+  fun apply(): USize => 16
+
 primitive SplitForIrc
   """
   Break a Matrix message into IRC lines, preferring somewhere a reader

@@ -43,3 +43,16 @@ primitive NotInvited
   """
   fun message(): String =>
     "You are not invited to that room"
+
+primitive TooManyLines
+  """
+  The message is longer than the bridge can carry in one go.
+
+  A bridged room's messages leave over a paced connection, so a long one
+  arrives over minutes and, past the send queue's depth, stops arriving at
+  all. Refused rather than sent in part, for the reason `BridgeDown` gives:
+  a message whose first half arrived and whose second did not cannot be
+  sent again by a client that was told it succeeded.
+  """
+  fun message(): String =>
+    "That message is too long for the network this room is bridged to"

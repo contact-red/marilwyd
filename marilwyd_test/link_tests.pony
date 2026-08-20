@@ -414,9 +414,10 @@ class \nodoc\ iso _TestATerminalDeathPartsAndIsForgotten is UnitTest
 primitive _DropsThenSends
 primitive _DropsThenReturns
 primitive _DiesForGood
+primitive _SendsTooMuch
 
 type _LifecycleCase is
-  (_DropsThenSends | _DropsThenReturns | _DiesForGood)
+  (_DropsThenSends | _DropsThenReturns | _DiesForGood | _SendsTooMuch)
 
 actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
   & StateReceiver & LinkOwner & irc.IRCSend & OutStream)
@@ -472,6 +473,24 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
     // step per line the link writes — see that behaviour for why.
     match \exhaustive\ _which
     | _DiesForGood => _link.died("the network refused to have us")
+    | _SendsTooMuch =>
+      // Far more lines than the bridge carries, in a body well inside
+      // `MaxEventBody`: the count refuses it, not the length.
+      let many =
+        recover val
+          let text = String(512)
+          var i: USize = 0
+          while i < (MaxIrcLines() * 2) do
+            text.append("line\\n")
+            i = i + 1
+          end
+          text
+        end
+      _room.send(
+        "@alice:example.test",
+        "m.room.message",
+        "{\"msgtype\":\"m.text\",\"body\":\"" + many + "\"}",
+        this)
     else
       None
     end
@@ -523,6 +542,7 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
           this)
       end
     | _DiesForGood => None
+    | _SendsTooMuch => None
     end
 
   be write(data: ByteSeq) => None
@@ -543,10 +563,13 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
     | _DropsThenSends =>
       _h.fail("a message was accepted while the connection was down")
       _h.complete(false)
+    | _SendsTooMuch =>
+      _h.fail("a message too long for the bridge was accepted")
+      _h.complete(false)
     | _DropsThenReturns => _h.complete(true)
     end
 
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown | TooManyLines)) =>
     match _which
     | _DropsThenSends =>
       _h.assert_true(
@@ -556,6 +579,11 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
     | _DropsThenReturns =>
       _h.fail("a message was refused after the connection came back")
       _h.complete(false)
+    | _SendsTooMuch =>
+      _h.assert_true(
+        why is TooManyLines,
+        "refused, but not for being too long for the bridge")
+      _h.complete(true)
     end
 
   be forget(user_id: String, network: String, channel: String) =>
@@ -812,7 +840,7 @@ actor \nodoc\ _OutboundRelay is (RoomCreationReceiver & EventReceiver
 
   be event_sent(id: EventId) => None
 
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown | TooManyLines)) =>
     _h.fail("the room refused an event it should have taken")
     _h.complete(false)
 
@@ -878,3 +906,24 @@ primitive \nodoc\ _Finished
   Relayed last, so that seeing it go out means everything before it has.
   """
   fun apply(): String => "zzz-that-is-everything"
+
+class \nodoc\ iso _TestALongMessageIsRefusedByABridge is UnitTest
+  """
+  A message longer than the bridge carries is refused, not sent in part.
+
+  A bridged room's messages leave over a paced connection: a burst, then
+  one line every couple of seconds, and past the send queue's depth the
+  rest is dropped. A paragraph therefore arrives over minutes and then
+  stops arriving, while the client that wrote it was told it succeeded and
+  given an event id. Refusing is the only one of those two a client can
+  act on.
+  """
+  fun name(): String => "links/a message too long for the bridge is refused"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    try
+      _LinkLifecycle(h, _LinkFixture.create()?, _SendsTooMuch)
+    else
+      _NoRandom(h)
+    end

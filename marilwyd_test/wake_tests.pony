@@ -198,7 +198,11 @@ actor _IgnoreEvent is EventReceiver
   For tests driving a room where the send's own answer is not the subject.
   """
   be event_sent(id: EventId) => None
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) => None
+
+  be event_refused(
+    why: (NotInRoom | NoEventId | BridgeDown | TooManyLines))
+  =>
+    None
 
 primitive _AnyDeviceId
   fun apply(): DeviceId ? =>
@@ -285,13 +289,16 @@ actor _ExpectRefused is EventReceiver
     _h.fail("a stranger's event was accepted into the room")
     _h.complete(false)
 
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown | TooManyLines)) =>
     match \exhaustive\ why
     | NotInRoom => _h.complete(true)
     | NoEventId =>
       _h.fail("refused for the wrong reason")
       _h.complete(false)
     | BridgeDown =>
+      _h.fail("refused for the wrong reason")
+      _h.complete(false)
+    | TooManyLines =>
       _h.fail("refused for the wrong reason")
       _h.complete(false)
     end
@@ -306,7 +313,7 @@ actor _ExpectAccepted is EventReceiver
     _h.assert_true(id.string().size() > 0)
     _h.complete(true)
 
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) =>
+  be event_refused(why: (NotInRoom | NoEventId | BridgeDown | TooManyLines)) =>
     _h.fail("a member's own event was refused")
     _h.complete(false)
 
