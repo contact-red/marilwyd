@@ -307,10 +307,12 @@ actor \nodoc\ _GhostMembership is (StateReceiver & RoomCreationReceiver)
     var bob = false
     var carol = false
     var dave = false
+    var memberships: USize = 0
     for event in events.values() do
       if event.kind != "m.room.member" then
         continue
       end
+      memberships = memberships + 1
       let joined = event.content.contains("\"membership\":\"join\"")
       match event.state_key
       | "@alice:example.test" => alice = joined
@@ -320,8 +322,94 @@ actor \nodoc\ _GhostMembership is (StateReceiver & RoomCreationReceiver)
       end
     end
 
+    // The count, not just the memberships. A departure that rewrote the
+    // event to `"leave"` instead of removing it would satisfy every
+    // assertion below — nobody reads as joined — while the room kept one
+    // entry per nickname it had ever seen, for the life of the process.
+    _h.assert_eq[USize](
+      2,
+      memberships,
+      "the room kept a membership event for somebody who left")
+
     _h.assert_true(alice, "the creator was not a member")
     _h.assert_false(bob, "a parted ghost was still a member")
     _h.assert_true(carol, "a ghost that stayed was not a member")
     _h.assert_false(dave, "parting a stranger wrote a membership event")
     _h.complete(true)
+
+class \nodoc\ iso _TestGhostsAreBounded is UnitTest
+  """
+  A room will not hold more people than its bound, however many the far
+  side names.
+
+  The far side fills this list and marilwyd does not: a channel's member
+  list is whatever the remote server says it is, and every entry costs a
+  permanent state slot and a delivery on every event. A server that is
+  hostile — or merely broken, repeating a name list with fresh nicknames —
+  would otherwise grow one room without limit.
+  """
+  fun name(): String => "rooms/a room holds no more ghosts than its bound"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(10_000_000_000)
+    match MakeRoomId("example.test")
+    | let id: RoomId => _GhostFlood(h, id)
+    else
+      _NoRandom(h)
+    end
+
+actor \nodoc\ _GhostFlood is (StateReceiver & RoomCreationReceiver)
+  let _h: TestHelper
+  let _room: Room
+  let _user: User
+
+  new create(h: TestHelper, id: RoomId) =>
+    _h = h
+    _user = User("@alice:example.test")
+    _room = Room(id)
+    _room.created_by(
+      "@alice:example.test",
+      _user,
+      CreateRoomRequest(None, None, false),
+      this,
+      _user)
+
+  be room_created(id: RoomId) =>
+    // Past the bound, with every name distinct — which is what a name
+    // list from a server inventing participants looks like.
+    var i: USize = 0
+    while i < (MaxRoomMembers() + 500) do
+      let who: String = "@irc_net_n" + i.string() + ":example.test"
+      _room.admit_ghost(who, "n" + i.string())
+      i = i + 1
+    end
+    _room.members("@alice:example.test", this)
+
+  be state_listed(events: Array[RoomEvent] val) =>
+    var memberships: USize = 0
+    for event in events.values() do
+      if event.kind == "m.room.member" then
+        memberships = memberships + 1
+      end
+    end
+    _h.assert_true(
+      memberships <= MaxRoomMembers(),
+      "the room held " + memberships.string() + " members, past its bound")
+    // And it did admit people, rather than the bound being met by
+    // refusing everybody.
+    _h.assert_true(
+      memberships > 1,
+      "the bound turned away every participant")
+    _h.complete(true)
+
+  be state_refused(why: NotInRoom) =>
+    _h.fail("the creator could not read the room")
+    _h.complete(false)
+
+  be room_refused() =>
+    _h.fail("the room was not created")
+    _h.complete(false)
+
+  be alias_taken() =>
+    _h.fail("an unnamed room claimed an alias")
+    _h.complete(false)

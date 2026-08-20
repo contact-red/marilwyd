@@ -222,6 +222,19 @@ actor Room
     keeps the room agreeing with the channel rather than with a single
     message that may not have arrived.
     """
+    // Bounded, because the far side fills this and marilwyd does not. A
+    // departure now removes its member, so the room tracks who is present
+    // rather than who has ever been seen — but "present" is still the
+    // remote server's claim, and a hostile or broken one can claim a
+    // hundred thousand people. Past the bound a participant is not
+    // admitted, which costs their name in the member list and nothing
+    // else: `send` refuses them, so nothing they say is attributed to
+    // somebody they are not.
+    if (_state.size() >= MaxRoomMembers()) and (not _state.is_member(user_id))
+    then
+      return
+    end
+
     if not _state.is_member(user_id) then
       _state.join(user_id)
       // The display name is the name as its owner spells it, while the user

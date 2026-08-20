@@ -48,8 +48,28 @@ class ref RoomState
     _members.set(user_id)
 
   fun ref leave(user_id: String) =>
+    """
+    Remove a member, and the membership event that named them.
+
+    Both, in one call, because membership is recorded twice here — as the
+    member set and as an `m.room.member` slot — and a caller that updated
+    one would leave the room disagreeing with itself. It did: `leave` took
+    the set and `apply_state` took the slot, so a departure removed
+    somebody from the room while `/members` and every fresh sync went on
+    listing them. On a bridged channel, where the people arriving are
+    strangers naming themselves, that grew by one permanent entry per
+    nickname ever seen and never shrank.
+
+    Removing the slot rather than leaving it set to `"leave"` is also what
+    this server already says it does — it keeps no history, so a
+    membership it retains is a claim about the present, and a leave is the
+    absence of one.
+    """
     try
       _members.extract(user_id)?
+    end
+    try
+      (_, _) = _state("m.room.member")?.remove(user_id)?
     end
 
   fun is_member(user_id: String): Bool =>
