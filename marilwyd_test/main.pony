@@ -211,6 +211,7 @@ actor Main is TestList
     test(_TestChannelNamesFallsBackToTheStandardMarks)
     test(_TestChannelNamesAnswersNoEmptyNames)
     test(_TestGhostsComeAndGo)
+    test(_TestGhostsAreBounded)
     test(_TestChannelMembershipIsMirrored)
     test(_TestActionsAndNoticesAreCarried)
     test(_TestCtcpPingIsAnswered)

@@ -59,8 +59,9 @@ heard, and two people who enter the same channel see each other through
 IRC — as their far-side nicknames, over the round trip — which is what two
 people on IRC using different clients see of one another.
 
-An IRC participant becomes a Matrix user the first time they speak, with
-their nickname as a display name. Two spellings of one nickname are one
+An IRC participant becomes a Matrix user when the channel says they are
+there — on the member list marilwyd receives when it enters, on a later
+join, or on anything they say — with their nickname as a display name. Two spellings of one nickname are one
 Matrix user, because IRC nicknames are case-insensitive; a nickname a
 Matrix user id cannot hold is escaped so that two different people can
 never become the same one.

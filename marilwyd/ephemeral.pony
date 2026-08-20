@@ -133,3 +133,19 @@ primitive EphemeralEvents
       out.append("]")
       out
     end
+
+primitive MaxRoomMembers
+  """
+  How many people one room will hold.
+
+  A bridged room's membership comes from the network on the other side,
+  which marilwyd does not control: a channel's name list is whatever that
+  server says it is, and a server that is hostile or merely broken can say
+  anything. Every member costs a permanent state slot and a delivery on
+  every event, so an unbounded list is an unbounded room.
+
+  Large enough that no real channel meets it — the biggest on a public
+  network run to a few thousand — so the bound is only ever felt by
+  something that is not a real channel.
+  """
+  fun apply(): USize => 10_000

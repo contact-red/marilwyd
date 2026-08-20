@@ -221,11 +221,16 @@ What this bounds and what it does not:
 
 * Bounded — how much one device accumulates while away, and therefore how
   much an account accumulates, since a device count is bounded by logins.
-* **Not bounded** — the number of rooms, the number of members in one, and
-  the current state a room holds. A room's name comes from its creator and
-  nothing caps its length. Every one of those needs an authenticated
-  account, so this is the same posture as the login cost above: stated,
-  and left for a rate limiter in front rather than a bound here.
+* **Not bounded** — the number of rooms, the number of members a room
+  gains from Matrix, and the current state a room holds. A room's name
+  comes from its creator and nothing caps its length. Every one of those
+  needs an authenticated account, so this is the same posture as the login
+  cost above: stated, and left for a rate limiter in front rather than a
+  bound here.
+* Bounded — the members a room gains from a *bridge*, at
+  `MaxRoomMembers()`. The difference is who is filling the list: a Matrix
+  member had to sign in, and a channel participant is whoever a remote
+  server says is there.
 
 A room id is the whole of the access control on a room. Anyone holding one
 can join, there are no invitations, and nothing revokes an id — a room
@@ -398,19 +403,32 @@ sequences replaced, so one person on a channel cannot emit a sync response
 that every client in the room rejects. Overlong forms and surrogates count
 as malformed: accepting them would give the same text two spellings.
 
-**A participant is a member with nothing to deliver to.** Somebody who
-speaks on the channel is admitted to the room so that a client can render
-their name and so the room will accept what they said. They are admitted on
-first speech and never parted — mirroring joins and parts would grow the
-room's permanently kept state by one entry per nickname ever *seen* rather
-than per nickname ever heard, driven by a party with no account here. That
-bound is the one thing on a bridged room that an unauthenticated stranger
-moves, and it is stated rather than solved.
+**A participant is a member with nothing to deliver to.** Somebody on the
+channel is admitted to the room so that a client can render their name and
+so the room will accept what they said — from the channel's own member
+list on entering it, from a later join, and from anything they say.
 
-marilwyd relays nothing out, so nothing a Matrix user writes reaches the
-network yet. When that changes it needs its own limits — a message that is
-one line in Matrix is many on IRC, and control characters in a line are
-commands to a server.
+Membership follows the channel in both directions: a part, a quit, a kick
+or a nickname change removes the member it named, and the membership event
+goes with them rather than being rewritten to say they left. The room
+therefore holds who is present rather than who has ever been seen, which
+matters because the party filling that list has no account here and is not
+otherwise bounded by anything marilwyd controls.
+
+Present is still the far side's claim, so it is capped as well:
+`MaxRoomMembers` is the most one room will hold, and past it a participant
+is not admitted. That costs their name in the member list and nothing
+else — the room refuses events from anyone it has not admitted, so nothing
+said on the channel is ever attributed to somebody it was not.
+
+**Relaying out has its own limits.** A message that is one line in Matrix
+is many on IRC, and control characters in a line are commands to a server.
+Outbound text is split on CR and LF before anything else, so a Matrix
+message cannot become a second IRC command, and each resulting line is cut
+to `IrcLineBudget` bytes. What is *not* yet bounded is how many lines one
+Matrix message may become, or how fast a client may offer them — a large
+message becomes a long queue, and the cost of that lands on a third-party
+network rather than on this server.
 
 ## The bridge configuration
 
