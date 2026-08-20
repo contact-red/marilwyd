@@ -272,9 +272,10 @@ primitive _ReadBridgesFile
   Resolve and parse the bridges file, if one was named.
 
   The same posture as the credentials file, and for a related reason: this
-  one holds no hashes, but it holds declared room ids, and a room id is the
-  entire access control on a room. A file of them inside the asset root
-  would publish them to anyone who can reach the socket.
+  one holds no hashes, but it decides which traffic leaves this server and
+  under what name. Inside the asset root it would be served to anyone who
+  can reach the socket, which is how an operator finds out that the two
+  directories overlap.
   """
   fun apply(
     path: String,

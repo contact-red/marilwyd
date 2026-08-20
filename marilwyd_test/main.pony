@@ -237,6 +237,7 @@ actor Main is TestList
     test(_TestAGhostIdIsAddressable)
     test(_TestANetworkNameMustBeAddressable)
     test(_TestADeclaredChannelIsAdvertised)
+    test(_TestAChannelsAliasCannotBeTaken)
     test(_TestEachUserGetsTheirOwnRoom)
     test(_TestTheSamePersonKeepsTheirRoom)
     test(_TestAnAliasNamesItsServer)

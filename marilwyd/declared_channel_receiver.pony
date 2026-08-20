@@ -1,4 +1,4 @@
-interface tag DeclaredRoomReceiver
+interface tag DeclaredChannelReceiver
   """
   Something waiting to be told about a room declared in the configuration.
   """

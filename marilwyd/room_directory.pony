@@ -43,8 +43,14 @@ actor RoomDirectory
   =>
     match wanted.alias
     | let alias: RoomAlias =>
+      // Both maps, because there is one alias namespace and it is spread
+      // across two. Checking only `_aliases` let an account take a
+      // declared channel's name, after which that alias resolved to the
+      // channel on the paths that ask `for_user` and to the squatter's
+      // room on the paths that ask `_resolve` — and the public directory
+      // listed both.
       let taken: String = alias.string()
-      if _aliases.contains(taken) then
+      if _aliases.contains(taken) or _channels.contains(taken) then
         receiver.alias_taken()
         return
       end
@@ -79,8 +85,7 @@ actor RoomDirectory
   be declare(
     channel: BridgedChannel,
     network: BridgedNetwork,
-    creator: String,
-    receiver: DeclaredRoomReceiver tag)
+    receiver: DeclaredChannelReceiver tag)
   =>
     """
     Record a channel an operator declared, so its alias can be entered.
@@ -94,7 +99,7 @@ actor RoomDirectory
     and the first Matrix user to enter is what opens one.
     """
     let alias: String = channel.alias.string()
-    if _channels.contains(alias) then
+    if _channels.contains(alias) or _aliases.contains(alias) then
       receiver.declaration_refused(channel.channel)
       return
     end
@@ -135,7 +140,6 @@ actor RoomDirectory
   be for_user(
     alias: String,
     user_id: String,
-    creator: String,
     receiver: BridgedRoomReceiver tag)
   =>
     """
@@ -169,7 +173,9 @@ actor RoomDirectory
       match MakeRoomId(_homeserver.server_name)
       | let minted: RoomId => minted
       else
-        receiver.no_such_channel()
+        // Not `no_such_channel`: the channel is declared and the alias is
+        // good. What failed is this server.
+        receiver.no_room_made()
         return
       end
 
@@ -180,13 +186,19 @@ actor RoomDirectory
     // Not published: a room only its owner may enter has no place in a
     // directory everyone reads. The channel is what the directory
     // advertises, and it is advertised by its alias rather than by a room.
+    //
+    // Created by the person it belongs to. Only they and the channel's
+    // participants are ever in it, and every other identity available
+    // here names an account nobody can sign in to.
+    //
+    // The asker is answered by the declaration rather than here, so a
+    // room that could not be written is not handed over as though it had.
     room.declared(
-      creator,
+      user_id,
       CreateRoomRequest(channel.room_name, channel.alias, false),
       channel,
       network,
-      _IgnoreDeclaration)
-    receiver.bridged_room(room, network)
+      _DeclaredThen(receiver, room))
 
   be channels(receiver: ChannelListReceiver tag) =>
     """

@@ -120,7 +120,7 @@ class \nodoc\ iso _TestADeclaredChannelIsAdvertised is UnitTest
     end
 
 actor \nodoc\ _DeclareThenLook is
-  (DeclaredRoomReceiver & ChannelListReceiver)
+  (DeclaredChannelReceiver & ChannelListReceiver)
   """
   Declares a channel and then asks the directory what it advertises.
   """
@@ -131,14 +131,10 @@ actor \nodoc\ _DeclareThenLook is
     _h = h
     _rooms = RoomDirectory(hs)
     _rooms.declare(
-      channel, _TestNetwork(), "@bridge:example.test", this)
+      channel, _TestNetwork(), this)
 
   be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
     _rooms.channels(this)
-
-  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    _h.fail("declaring a channel made a room")
-    _h.complete(false)
 
   be declaration_refused(channel: String) =>
     _h.fail("declaring " + channel + " was refused")
@@ -176,7 +172,7 @@ class \nodoc\ iso _TestEachUserGetsTheirOwnRoom is UnitTest
     end
 
 actor \nodoc\ _TwoUsersOneChannel is
-  (DeclaredRoomReceiver & BridgedRoomReceiver & RoomIdReceiver)
+  (DeclaredChannelReceiver & BridgedRoomReceiver & RoomIdReceiver)
   let _h: TestHelper
   let _rooms: RoomDirectory
   let _alias: String
@@ -186,14 +182,10 @@ actor \nodoc\ _TwoUsersOneChannel is
     _h = h
     _alias = channel.alias.string()
     _rooms = RoomDirectory(hs)
-    _rooms.declare(channel, _TestNetwork(), "@bridge:example.test", this)
+    _rooms.declare(channel, _TestNetwork(), this)
 
   be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
-    _rooms.for_user(
-      _alias, "@alice:example.test", "@bridge:example.test", this)
-
-  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    None
+    _rooms.for_user(_alias, "@alice:example.test", this)
 
   be declaration_refused(channel: String) =>
     _h.fail("declaring was refused")
@@ -201,6 +193,10 @@ actor \nodoc\ _TwoUsersOneChannel is
 
   be bridged_room(room: Room tag, network: BridgedNetwork) =>
     room.identify(this)
+
+  be no_room_made() =>
+    _h.fail("the room for a declared channel could not be made")
+    _h.complete(false)
 
   be no_such_channel() =>
     _h.fail("the channel it just declared was not found")
@@ -214,8 +210,7 @@ actor \nodoc\ _TwoUsersOneChannel is
       _h.complete(true)
     else
       _first = id.string()
-      _rooms.for_user(
-        _alias, "@bob:example.test", "@bridge:example.test", this)
+      _rooms.for_user(_alias, "@bob:example.test", this)
     end
 
 class \nodoc\ iso _TestTheSamePersonKeepsTheirRoom is UnitTest
@@ -237,7 +232,7 @@ class \nodoc\ iso _TestTheSamePersonKeepsTheirRoom is UnitTest
     end
 
 actor \nodoc\ _OneUserTwice is
-  (DeclaredRoomReceiver & BridgedRoomReceiver & RoomIdReceiver)
+  (DeclaredChannelReceiver & BridgedRoomReceiver & RoomIdReceiver)
   let _h: TestHelper
   let _rooms: RoomDirectory
   let _alias: String
@@ -247,14 +242,10 @@ actor \nodoc\ _OneUserTwice is
     _h = h
     _alias = channel.alias.string()
     _rooms = RoomDirectory(hs)
-    _rooms.declare(channel, _TestNetwork(), "@bridge:example.test", this)
+    _rooms.declare(channel, _TestNetwork(), this)
 
   be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
-    _rooms.for_user(
-      _alias, "@alice:example.test", "@bridge:example.test", this)
-
-  be room_declared(channel: BridgedChannel, id: RoomId, room: Room tag) =>
-    None
+    _rooms.for_user(_alias, "@alice:example.test", this)
 
   be declaration_refused(channel: String) =>
     _h.fail("declaring was refused")
@@ -262,6 +253,10 @@ actor \nodoc\ _OneUserTwice is
 
   be bridged_room(room: Room tag, network: BridgedNetwork) =>
     room.identify(this)
+
+  be no_room_made() =>
+    _h.fail("the room for a declared channel could not be made")
+    _h.complete(false)
 
   be no_such_channel() =>
     _h.fail("the channel was not found")
@@ -275,8 +270,7 @@ actor \nodoc\ _OneUserTwice is
       _h.complete(true)
     else
       _first = id.string()
-      _rooms.for_user(
-        _alias, "@alice:example.test", "@bridge:example.test", this)
+      _rooms.for_user(_alias, "@alice:example.test", this)
     end
 
 primitive \nodoc\ _TestNetwork
@@ -306,3 +300,127 @@ primitive \nodoc\ _ReadFixture
     else
       StartupError("fixture", "the bridges fixture is missing")
     end
+
+class \nodoc\ iso _TestAChannelsAliasCannotBeTaken is UnitTest
+  """
+  A declared channel's alias belongs to the channel, and an account
+  cannot claim it.
+
+  There is one alias namespace and it was kept in two maps: `create_room`
+  checked the room aliases and `declare` checked the channels, neither
+  consulting the other. After a squat the same alias named two different
+  things depending on which endpoint was asked — the channel on the paths
+  that resolve for a user, the squatter's room on the paths that resolve
+  by alias — and the public directory listed both, with the squatter
+  choosing the display name.
+  """
+  fun name(): String => "bridges/a channel's alias cannot be taken"
+
+  fun apply(h: TestHelper) =>
+    h.long_test(5_000_000_000)
+    match (
+      RoomAliases("#norrath:example.test", "example.test"),
+      MakeHomeserver.http("example.test"))
+    | (let alias: RoomAlias, let hs: Homeserver) =>
+      _AliasSquatter(h, BridgedChannel("#norrath", "norrath", alias), hs)
+    else
+      h.fail("could not build a fixture")
+    end
+
+actor \nodoc\ _AliasSquatter is
+  (DeclaredChannelReceiver & RoomCreationReceiver)
+  """
+  Declares a channel, then tries to create an ordinary room under the
+  channel's alias, and then the other way round.
+  """
+  let _h: TestHelper
+  let _rooms: RoomDirectory
+  let _channel: BridgedChannel
+  let _user: User
+  var _second: Bool = false
+
+  new create(h: TestHelper, channel: BridgedChannel, hs: Homeserver) =>
+    _h = h
+    _channel = channel
+    _user = User("@squatter:example.test")
+    _rooms = RoomDirectory(hs)
+    _rooms.declare(channel, _TestNetwork(), this)
+
+  be channel_declared(channel: BridgedChannel, network: BridgedNetwork) =>
+    _rooms.create_room(
+      "@squatter:example.test",
+      _user,
+      CreateRoomRequest(None, _channel.alias, false),
+      this,
+      _user)
+
+  be declaration_refused(channel: String) =>
+    if _second then
+      // The other direction, which is the half that already worked.
+      _h.complete(true)
+    else
+      _h.fail("declaring a channel into an empty directory was refused")
+      _h.complete(false)
+    end
+
+  be room_created(id: RoomId) =>
+    _h.fail("an account took a declared channel's alias")
+    _h.complete(false)
+
+  be alias_taken() =>
+    // Now the reverse: a channel may not take a room's alias either.
+    _second = true
+    match RoomAliases("#taken:example.test", "example.test")
+    | let other: RoomAlias =>
+      _rooms.create_room(
+        "@squatter:example.test",
+        _user,
+        CreateRoomRequest(None, other, false),
+        _ExpectRoomThen(_h, _rooms, _channel, this, other),
+        _user)
+    else
+      _h.fail("could not build the second alias")
+      _h.complete(false)
+    end
+
+  be room_refused() =>
+    _h.fail("the CSPRNG is unavailable")
+    _h.complete(false)
+
+actor \nodoc\ _ExpectRoomThen is RoomCreationReceiver
+  """
+  Takes an alias with an ordinary room, then declares a channel wanting
+  the same one.
+  """
+  let _h: TestHelper
+  let _rooms: RoomDirectory
+  let _channel: BridgedChannel
+  let _then: DeclaredChannelReceiver tag
+  let _alias: RoomAlias
+
+  new create(
+    h: TestHelper,
+    rooms: RoomDirectory,
+    channel: BridgedChannel,
+    then': DeclaredChannelReceiver tag,
+    alias: RoomAlias)
+  =>
+    _h = h
+    _rooms = rooms
+    _channel = channel
+    _then = then'
+    _alias = alias
+
+  be room_created(id: RoomId) =>
+    _rooms.declare(
+      BridgedChannel(_channel.channel, _channel.room_name, _alias),
+      _TestNetwork(),
+      _then)
+
+  be alias_taken() =>
+    _h.fail("a free alias was reported as taken")
+    _h.complete(false)
+
+  be room_refused() =>
+    _h.fail("the CSPRNG is unavailable")
+    _h.complete(false)

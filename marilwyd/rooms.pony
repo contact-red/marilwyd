@@ -376,8 +376,7 @@ actor _MembershipHandler is
       // who enters it, so it is asked about before the room table: a room
       // id names one room, and this may name a channel instead.
       if _joining then
-        _rooms.for_user(
-          id, session.user_id, _homeserver.user_id("bridge"), this)
+        _rooms.for_user(id, session.user_id, this)
       else
         _rooms.with_room(id, this)
       end
@@ -394,6 +393,17 @@ actor _MembershipHandler is
     """
     _room = room
     room.bridged(this)
+
+  be no_room_made() =>
+    """
+    The channel exists and its room could not be written, which is this
+    server's failure and not the client's.
+    """
+    _respond(
+      stallion.StatusInternalServerError,
+      MatrixError(
+        "M_UNKNOWN",
+        "The room for that channel could not be created"))
 
   be no_such_channel() =>
     // Not a channel, so it may still be an ordinary room id or alias.
@@ -454,12 +464,6 @@ actor _MembershipHandler is
       room.join(s.user_id, s.user, this, s.user)
       room.carry(s.user_id, link)
     end
-
-  be join_allowed(channel: String) =>
-    // Unused: a bridged join answers through `joined_with`, which carries
-    // the connection with it. Present because `JoinReceiver` names both
-    // and a handler that implemented only one would not compile.
-    None
 
   be join_refused(channel: String) =>
     // The far side would not have them, so neither will the room. A client
