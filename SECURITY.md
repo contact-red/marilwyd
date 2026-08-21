@@ -12,13 +12,12 @@ a current guarantee.
 every request path through `FilePath.from`, which is meant to keep the result
 within that root.
 
-**It does not, in any released ponyc.** `FilePath.from` joins the two paths —
-which resolves `..` — and then tests that the result begins with the root, as
+**It did not, up to ponyc 0.68.0.** `FilePath.from` joins the two paths —
+which resolves `..` — and then tested that the result begins with the root, as
 a string, with no separator boundary. An asset root of `/srv/element` therefore
-accepts `/srv/element-config/x`, because one string begins with the other. Any
-sibling directory whose name extends the root's is readable by anyone who can
-reach the socket, with no credential. The fix is on ponyc's `main` and in no
-release, so marilwyd cannot wait for it.
+accepted `/srv/element-config/x`, because one string begins with the other. Any
+sibling directory whose name extends the root's was readable by anyone who
+could reach the socket, with no credential. ponyc 0.69.1 fixes it.
 
 `_ContainedPath` refuses any request whose path carries a `..` segment, before
 routing and before any handler exists. One interceptor rather than a check on
@@ -28,9 +27,12 @@ a walk upward, and refusing it would be a bug of a quieter kind. Nothing between
 the socket and `FilePath.from` percent-decodes, so `%2e%2e` arrives as six
 characters naming a directory rather than as a parent reference.
 
-This stays after a fixed ponyc ships. The bug is in a transitive property of a
-dependency's dependency, and it is cheaper to keep the check than to reason
-about which toolchain built the binary in front of you.
+This stays. The source compiles on an older ponyc and nothing in the build
+refuses to, so without it, whether a given binary is safe would be a question
+about which compiler built it. The bug is also in a transitive property of a
+dependency's dependency — marilwyd calls neither `ServeFiles` nor
+`FilePath.from` directly — which is the kind of thing that changes without
+anyone here noticing.
 
 ## Symlinks are followed
 
@@ -161,7 +163,7 @@ bodies over three rounds took RSS from 9 MB to 200 MB.
 than `MaxLoginDepth()` before the parser builds anything from it. The size
 limit bounds one body's cost; the depth limit bounds its shape, so the
 frame count no longer follows the byte count. Both are checked in a
-streaming pre-pass, since ponyc 0.68.0's `JsonParser` takes no limits and
+streaming pre-pass, since `JSONParser` takes no limits and
 only its token-level counterpart can be stopped mid-document.
 
 Measured after: the same load reaches 30 MB, and a maximally nested body
