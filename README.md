@@ -93,15 +93,19 @@ bridging will be built natively instead. Federation, for now.
 
 ## Building
 
-Requires [corral](https://github.com/ponylang/corral), a C SSL library (a
-transitive requirement of `ssl`, via `stallion`), and a ponyc **newer than
-0.68.0**.
+Requires [corral](https://github.com/ponylang/corral) and a C SSL library
+(a transitive requirement of `ssl`, via `stallion`). Built and tested
+against ponyc 0.68.0.
 
-That version floor is not arbitrary. `hobby.ServeFiles` keeps requests inside
-`--asset-root` via `FilePath.from`, whose containment check landed after
-0.68.0. Built against 0.68.0 or earlier, a request for
-`/element/../<sibling>` escapes the asset root whenever a sibling directory's
-name extends its own.
+No version floor, because the one that would help does not exist yet.
+`ServeFiles` keeps requests inside `--asset-root` via `FilePath.from`,
+whose containment check in 0.68.0 is a bare string prefix: `Path.join`
+resolves the `..` first, so `/element/../<sibling>` escapes the root
+whenever a sibling directory's name extends its own. The fix is on ponyc's
+`main` and in no release. marilwyd therefore refuses upward paths itself —
+see `_ContainedPath` — and goes on refusing them once a fixed ponyc ships,
+because a server that reads files out of a directory should be able to say
+for itself that it does not leave one.
 
 ```shell
 corral fetch
