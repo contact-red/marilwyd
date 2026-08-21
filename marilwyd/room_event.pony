@@ -9,15 +9,15 @@ class val RoomEvent
   change are one type with one optional field rather than two types that
   render identically into the same timeline.
 
-  `content` is **already-printed JSON**, not a `JsonObject`. The handler
+  `content` is **already-printed JSON**, not a `JSONObject`. The handler
   parses the client's bytes, validates them, and prints them back through
-  `JsonPrinter`; the registry stores the text. Three reasons, in order of
-  weight: a `JsonObject` has no deep copy, so one built by a handler would
+  `JSONPrinter`; the registry stores the text. Three reasons, in order of
+  weight: a `JSONObject` has no deep copy, so one built by a handler would
   pin that handler, its connection and its request body under ORCA for as
   long as the event is retained; measured, the object form costs 901 bytes
   for a minimal message against 82 bytes of text, and 533 kB at the body
   limit; and rendering a document by concatenation measured ~1 µs against
-  ~15 µs through the object tree. Escaping is still `JsonPrinter`'s — the
+  ~15 µs through the object tree. Escaping is still `JSONPrinter`'s — the
   registry concatenates text that was printed, never text it assembled.
   """
   let id: EventId
@@ -58,11 +58,11 @@ class val RoomEvent
     recover val
       let out = String(content.size() + 256)
       out.append("{\"event_id\":")
-      out.append(JsonPrinter.print(id.string()))
+      out.append(JSONPrinter.print(id.string()))
       out.append(",\"type\":")
-      out.append(JsonPrinter.print(kind))
+      out.append(JSONPrinter.print(kind))
       out.append(",\"sender\":")
-      out.append(JsonPrinter.print(sender))
+      out.append(JSONPrinter.print(sender))
       out.append(",\"origin_server_ts\":")
       out.append(timestamp.string())
       out.append(",\"content\":")
@@ -70,7 +70,7 @@ class val RoomEvent
       match state_key
       | let k: String =>
       out.append(",\"state_key\":")
-      out.append(JsonPrinter.print(k))
+      out.append(JSONPrinter.print(k))
     end
       out.append("}")
       out

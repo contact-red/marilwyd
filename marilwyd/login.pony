@@ -160,8 +160,8 @@ primitive _ParseLogin
     let text = String.from_array(body)
 
     let o =
-      match JsonParser.parse(consume text)
-      | let j: JsonObject => j
+      match JSONParser.parse(consume text)
+      | let j: JSONObject => j
       else
         return _LoginRefusal(
           stallion.StatusBadRequest,
@@ -195,7 +195,7 @@ primitive _ParseLogin
 
     let user =
       match o.get_or_else("identifier", None)
-      | let id: JsonObject =>
+      | let id: JSONObject =>
         match id.get_or_else("user", None)
         | let s: String => s
         else

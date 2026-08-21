@@ -540,7 +540,7 @@ actor UserLink is (irc.IRCNotify & RoomMember)
         _ghost(who, settled),
         "m.room.message",
         "{\"msgtype\":\"" + kind + "\",\"body\":"
-          + JsonPrinter.print(ValidUtf8(said)) + "}",
+          + JSONPrinter.print(ValidUtf8(said)) + "}",
         _IgnoreRelay)
     end
 
@@ -723,8 +723,8 @@ primitive Said
     event says nothing IRC can carry.
     """
     let sent =
-      match JsonParser.parse(content)
-      | let o: JsonObject => o
+      match JSONParser.parse(content)
+      | let o: JSONObject => o
       else
         return None
       end

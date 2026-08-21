@@ -31,11 +31,11 @@ class val KeyBackup
     recover val
       String(auth_data.size() + 128)
         .> append("{\"algorithm\":")
-        .> append(JsonPrinter.print(algorithm))
+        .> append(JSONPrinter.print(algorithm))
         .> append(",\"auth_data\":")
         .> append(auth_data)
         .> append(",\"version\":")
-        .> append(JsonPrinter.print(version))
+        .> append(JSONPrinter.print(version))
         .> append(",\"count\":0,\"etag\":\"0\"}")
     end
 
@@ -49,14 +49,14 @@ primitive KeyNamed
   """
   fun apply(stored: String, key_id: String): Bool =>
     let published =
-      match JsonParser.parse(stored)
-      | let o: JsonObject => o
+      match JSONParser.parse(stored)
+      | let o: JSONObject => o
       else
         return false
       end
     try
       match published("keys")?
-      | let keys: JsonObject => return keys.contains(key_id)
+      | let keys: JSONObject => return keys.contains(key_id)
       end
     end
     false

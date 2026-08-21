@@ -6,7 +6,7 @@ primitive MaxLoginBody
 
   Far below the server-wide limit, because a login body is a handful of
   short fields and nothing legitimate approaches this. It is low for a
-  reason beyond tidiness: `JsonParser` allocates a container frame per
+  reason beyond tidiness: `JSONParser` allocates a container frame per
   level of nesting, so the cost of parsing a body is proportional to its
   size, and this endpoint is reachable without a credential.
 
@@ -112,7 +112,7 @@ primitive _ObjectBody
     body: Array[U8] val,
     max_bytes: USize,
     max_depth: USize = MaxBodyDepth())
-    : (JsonObject | None)
+    : (JSONObject | None)
   =>
     if body.size() > max_bytes then
       return None
@@ -120,6 +120,6 @@ primitive _ObjectBody
     if _JSONDeeperThan(body, max_depth) then
       return None
     end
-    match JsonParser.parse(String.from_array(body))
-    | let o: JsonObject => o
+    match JSONParser.parse(String.from_array(body))
+    | let o: JSONObject => o
     end

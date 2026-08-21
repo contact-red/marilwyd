@@ -40,7 +40,7 @@ actor _UploadKeysHandler is
 
   be token_resolved(session: Session) =>
     match \exhaustive\ _KeysBody(_body)
-    | let uploaded: JsonObject =>
+    | let uploaded: JSONObject =>
       match _PrintedField(uploaded, "device_keys")
       | let keys: String =>
         session.user.publish_keys(session.device.string(), keys)
@@ -114,7 +114,7 @@ actor _QueryKeysHandler is
 
   be token_resolved(session: Session) =>
     match \exhaustive\ _KeysBody(_body)
-    | let asked: JsonObject =>
+    | let asked: JSONObject =>
       _asking = session.user_id
       _sessions.lookup_users(QueriedUsers(asked, session.user_id), this)
     | MalformedKeys =>
@@ -181,7 +181,7 @@ primitive QueriedUsers
   other devices — and an answer that omitted it would be the unanswered
   query that costs a request storm.
   """
-  fun apply(body: JsonObject, asking: String): Array[String] val =>
+  fun apply(body: JSONObject, asking: String): Array[String] val =>
     """
     Every account named, plus the one asking.
     """
@@ -189,7 +189,7 @@ primitive QueriedUsers
     wanted.push(asking.clone())
     try
       match body("device_keys")?
-      | let asked: JsonObject =>
+      | let asked: JSONObject =>
         for user_id in asked.keys() do
           if user_id != asking then
             wanted.push(user_id.clone())
@@ -237,7 +237,7 @@ actor _UploadCrossSigningKeysHandler is
 
   be token_resolved(session: Session) =>
     match \exhaustive\ _KeysBody(_body)
-    | let uploaded: JsonObject =>
+    | let uploaded: JSONObject =>
       session.user.publish_cross_signing(
         _PrintedField(uploaded, "master_key"),
         _PrintedField(uploaded, "self_signing_key"),
@@ -300,14 +300,14 @@ actor _UploadSignaturesHandler is (hobby.HandlerReceiver & UserReceiver)
 
   be token_resolved(session: Session) =>
     match \exhaustive\ _KeysBody(_body)
-    | let uploaded: JsonObject =>
+    | let uploaded: JSONObject =>
       try
         match uploaded(session.user_id)?
-        | let mine: JsonObject =>
+        | let mine: JSONObject =>
           for (key_id, signed) in mine.pairs() do
             match signed
-            | let o: JsonObject =>
-              session.user.sign_key(key_id.clone(), JsonPrinter.print(o))
+            | let o: JSONObject =>
+              session.user.sign_key(key_id.clone(), JSONPrinter.print(o))
             end
           end
         end

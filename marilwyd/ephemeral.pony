@@ -91,7 +91,7 @@ primitive EphemeralEvents
             out.append(",")
           end
           event_first = false
-          out.append(JsonPrinter.print(event_id))
+          out.append(JSONPrinter.print(event_id))
           out.append(":{\"m.read\":{")
           var who_first = true
           for receipt in receipts.values() do
@@ -99,7 +99,7 @@ primitive EphemeralEvents
               out.append(",")
             end
             who_first = false
-            out.append(JsonPrinter.print(receipt.user_id))
+            out.append(JSONPrinter.print(receipt.user_id))
             out.append(":{\"ts\":")
             out.append(receipt.at.string())
             out.append("}")
@@ -125,7 +125,7 @@ primitive EphemeralEvents
             out.append(",")
           end
           who_first = false
-          out.append(JsonPrinter.print(who))
+          out.append(JSONPrinter.print(who))
         end
         out.append("]}}")
       end

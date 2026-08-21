@@ -634,7 +634,7 @@ actor Room
     A JSON string. Built here rather than by concatenation elsewhere so
     nothing assembles a document out of unescaped client text.
     """
-    JsonPrinter.print(text)
+    JSONPrinter.print(text)
 
 primitive _TooLongToRelay
   """

@@ -53,8 +53,8 @@ primitive _CreateRoomWanted
     : (CreateRoomRequest | InvalidAlias)
   =>
     let sent =
-      match JsonParser.parse(String.from_array(body))
-      | let o: JsonObject => o
+      match JSONParser.parse(String.from_array(body))
+      | let o: JSONObject => o
       else
         return CreateRoomRequest(None, None, false, None)
       end
@@ -96,10 +96,10 @@ primitive _WantsEncryption
   Bounded and escaped like any other text from a request. It is state,
   which means every member reads it.
   """
-  fun apply(sent: JsonObject): (String | None) =>
+  fun apply(sent: JSONObject): (String | None) =>
     let initial =
       match sent.get_or_else("initial_state", None)
-      | let a: JsonArray => a
+      | let a: JSONArray => a
       else
         return None
       end
@@ -107,7 +107,7 @@ primitive _WantsEncryption
     for entry in initial.values() do
       let event =
         match entry
-        | let o: JsonObject => o
+        | let o: JSONObject => o
         else
           continue
         end
@@ -123,7 +123,7 @@ primitive _WantsEncryption
 
       let content =
         match event.get_or_else("content", None)
-        | let o: JsonObject => o
+        | let o: JSONObject => o
         else
           // Asked for encryption and named no algorithm. Taken as the
           // request it plainly is, with the algorithm every client means.
@@ -201,10 +201,10 @@ primitive _EventContent
   """
   Validate a client's event body and print it back.
 
-  Printing rather than passing the parsed object: a `JsonObject` has no
+  Printing rather than passing the parsed object: a `JSONObject` has no
   deep copy, so one built here would pin this handler, its connection and
   its request body for as long as any device held the event. Text is
-  copyable, and `JsonPrinter` does the escaping so nothing downstream
+  copyable, and `JSONPrinter` does the escaping so nothing downstream
   assembles a document out of client text.
   """
   fun apply(body: Array[U8] val)
@@ -219,8 +219,8 @@ primitive _EventContent
     if _JSONDeeperThan(body, MaxEventDepth()) then
       return EventTooDeep
     end
-    match JsonParser.parse(String.from_array(body))
-    | let o: JsonObject => JsonPrinter.print(o)
+    match JSONParser.parse(String.from_array(body))
+    | let o: JSONObject => JSONPrinter.print(o)
     else
       MalformedEvent
     end
@@ -975,7 +975,7 @@ primitive _InvitedUser
   fun apply(body: Array[U8] val): (String | None) =>
     let parsed =
       match _ObjectBody(body, MaxEventBody())
-      | let o: JsonObject => o
+      | let o: JSONObject => o
       else
         return None
       end

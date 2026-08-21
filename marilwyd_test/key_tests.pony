@@ -18,10 +18,10 @@ class \nodoc\ iso _TestSignaturesAreMergedNotSubstituted is UnitTest
       "{\"device_id\":\"AAA\",\"keys\":{\"ed25519:AAA\":\"real\"},"
         + "\"signatures\":{}}"
     let uploaded =
-      match JsonParser.parse(
+      match JSONParser.parse(
         "{\"device_id\":\"AAA\",\"keys\":{\"ed25519:AAA\":\"forged\"},"
           + "\"signatures\":{\"@a:x\":{\"ed25519:M\":\"sig\"}}}")
-      | let o: JsonObject => o
+      | let o: JSONObject => o
       else
         h.fail("the fixture is not JSON")
         return
@@ -44,9 +44,9 @@ class \nodoc\ iso _TestSignaturesAccumulate is UnitTest
       "{\"keys\":{\"ed25519:AAA\":\"k\"},"
         + "\"signatures\":{\"@a:x\":{\"ed25519:ONE\":\"first\"}}}"
     let uploaded =
-      match JsonParser.parse(
+      match JSONParser.parse(
         "{\"signatures\":{\"@a:x\":{\"ed25519:TWO\":\"second\"}}}")
-      | let o: JsonObject => o
+      | let o: JSONObject => o
       else
         h.fail("the fixture is not JSON")
         return
@@ -66,8 +66,8 @@ class \nodoc\ iso _TestAQueryAlwaysAnswersAboutTheAsker is UnitTest
 
   fun apply(h: TestHelper) =>
     let asked =
-      match JsonParser.parse("{\"device_keys\":{\"@other:x\":[]}}")
-      | let o: JsonObject => o
+      match JSONParser.parse("{\"device_keys\":{\"@other:x\":[]}}")
+      | let o: JSONObject => o
       else
         h.fail("the fixture is not JSON")
         return
@@ -87,8 +87,8 @@ class \nodoc\ iso _TestAQueryDoesNotNameTheAskerTwice is UnitTest
 
   fun apply(h: TestHelper) =>
     let asked =
-      match JsonParser.parse("{\"device_keys\":{\"@alice:x\":[]}}")
-      | let o: JsonObject => o
+      match JSONParser.parse("{\"device_keys\":{\"@alice:x\":[]}}")
+      | let o: JSONObject => o
       else
         h.fail("the fixture is not JSON")
         return
@@ -152,10 +152,10 @@ class \nodoc\ iso _TestOneTimeKeysAreSplitIntoPairs is UnitTest
 
   fun apply(h: TestHelper) =>
     let uploaded =
-      match JsonParser.parse(
+      match JSONParser.parse(
         "{\"one_time_keys\":{\"signed_curve25519:a\":{\"key\":\"1\"},"
           + "\"signed_curve25519:b\":{\"key\":\"2\"}}}")
-      | let o: JsonObject => o
+      | let o: JSONObject => o
       else
         h.fail("the fixture is not JSON")
         return

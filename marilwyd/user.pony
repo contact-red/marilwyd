@@ -152,8 +152,8 @@ actor User
     is no version of it here that the signature could be attached to.
     """
     let fresh =
-      match JsonParser.parse(uploaded)
-      | let o: JsonObject => o
+      match JSONParser.parse(uploaded)
+      | let o: JSONObject => o
       else
         return
       end
@@ -262,7 +262,7 @@ actor User
   fun _signed_if_named(
     stored: (String | None),
     key_id: String,
-    uploaded: JsonObject)
+    uploaded: JSONObject)
     : (String | None)
   =>
     """

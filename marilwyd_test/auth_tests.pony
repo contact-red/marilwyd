@@ -282,8 +282,8 @@ class \nodoc\ iso _TestLoginIssuesAToken is UnitTest
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
         try
           let body = r.substring(r.find("\r\n\r\n")? + 4)
-          match JsonParser.parse(consume body)
-          | let o: JsonObject =>
+          match JSONParser.parse(consume body)
+          | let o: JSONObject =>
             h.assert_eq[String](
               "@alice:example.test", o("user_id")? as String)
             // 32 random bytes, hex encoded.
