@@ -398,6 +398,14 @@ actor Room
       receiver.event_refused(BridgeDown)
       return
     end
+    // And nothing is recorded that the far side could only carry part of.
+    // Asked only of a bridged room, and only of what a bridge relays: a
+    // room with no connection has no such limit, and an event that never
+    // leaves is bounded by `MaxEventBody` like any other.
+    if _carrying.contains(user_id) and _TooLongToRelay(kind, content) then
+      receiver.event_refused(TooManyLines)
+      return
+    end
     match _append(user_id, kind, content, None)
     | let id: EventId => receiver.event_sent(id)
     else
@@ -627,3 +635,29 @@ actor Room
     nothing assembles a document out of unescaped client text.
     """
     JsonPrinter.print(text)
+
+primitive _TooLongToRelay
+  """
+  Whether this event would become more IRC lines than one may.
+
+  Only what a connection actually relays is measured. Everything else is
+  either not carried outward at all — a membership, a receipt — or is not
+  lines of text, and counting it would refuse events for a cost they do
+  not have.
+  """
+  fun apply(kind: String, content: String): Bool =>
+    if kind != "m.room.message" then
+      return false
+    end
+    match Said(content)
+    | (let text: String, _) =>
+      // Split rather than estimated. The split breaks at sentence and
+      // word ends, so a piece is usually shorter than the budget and
+      // arithmetic over the length undercounts — a first version of this
+      // did, and would have accepted messages that do not fit. Doing the
+      // work twice for a message about to be refused is cheaper than
+      // being wrong about which ones those are.
+      SplitForIrc(text).size() > MaxIrcLines()
+    else
+      false
+    end

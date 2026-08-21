@@ -471,3 +471,49 @@ class \nodoc\ iso _TestAnOrdinaryRoomIsNotEncrypted is UnitTest
           r.contains("m.room.encryption"),
           "a room nobody asked to encrypt claimed to be: " + r)
       } val)
+
+class \nodoc\ iso _TestAnOrdinaryRoomTakesALongMessage is UnitTest
+  """
+  A room with no bridge has no line limit.
+
+  The limit exists because a paced IRC connection carries a paragraph over
+  minutes and then stops carrying it. A room that goes nowhere has no such
+  cost, and applying the bound there would refuse messages for a reason
+  that does not apply to them — so the check asks whether the room is
+  carried before it asks how long the message is.
+  """
+  fun name(): String => "rooms/a room with no bridge takes a long message"
+
+  fun apply(h: TestHelper) =>
+    let many =
+      recover val
+        let text = String(512)
+        var i: USize = 0
+        while i < (MaxIrcLines() * 4) do
+          text.append("line\\n")
+          i = i + 1
+        end
+        text
+      end
+
+    _ServeAuthedChain(
+      h,
+      {(token) =>
+        _Post(
+          "/_matrix/client/v3/createRoom",
+          "{\"name\":\"chatty\"}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(token, login, first)(many) =>
+        _Send(
+          "PUT",
+          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0))
+            + "/send/m.room.message/txn1",
+          "{\"msgtype\":\"m.text\",\"body\":\"" + many + "\"}",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r) =>
+        h.assert_true(
+          r.contains("HTTP/1.1 200 OK\r\n"),
+          "a room with no bridge refused a long message: " + r)
+      } val)

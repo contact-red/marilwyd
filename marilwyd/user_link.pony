@@ -758,7 +758,11 @@ actor _IgnoreRelay is EventReceiver
   `admit_ghost` has already settled.
   """
   be event_sent(id: EventId) => None
-  be event_refused(why: (NotInRoom | NoEventId | BridgeDown)) => None
+
+  be event_refused(
+    why: (NotInRoom | NoEventId | BridgeDown | TooManyLines))
+  =>
+    None
 
 primitive IsCtcp
   """

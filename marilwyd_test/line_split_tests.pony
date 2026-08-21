@@ -182,3 +182,32 @@ class \nodoc\ iso _TestABlindCutKeepsCharactersWhole is UnitTest
       h.assert_eq[USize](
         0, piece.size() % 2, "a two-byte character was cut: " + piece)
     end
+
+class \nodoc\ iso _TestLineCountIsNotFooledByNewlines is UnitTest
+  """
+  A short message may still be many lines.
+
+  The bound exists because length does not decide the count: newlines
+  split first and always, so a hundred bytes of them is fifty lines. A
+  byte limit alone would let that through — which is why the limit counts
+  lines and why it counts them by splitting.
+  """
+  fun name(): String => "split/newlines make lines out of a short message"
+
+  fun apply(h: TestHelper) =>
+    let dense =
+      recover val
+        let s = String(128)
+        var i: USize = 0
+        while i < 64 do
+          s.append("x\n")
+          i = i + 1
+        end
+        s
+      end
+    h.assert_true(
+      dense.size() < IrcLineBudget(),
+      "the case must be short to mean anything")
+    h.assert_true(
+      SplitForIrc(dense).size() > MaxIrcLines(),
+      "a message of nothing but newlines became few lines")

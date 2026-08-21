@@ -228,7 +228,8 @@ What this bounds and what it does not:
   cost above: stated, and left for a rate limiter in front rather than a
   bound here.
 * Bounded — the members a room gains from a *bridge*, at
-  `MaxRoomMembers()`. The difference is who is filling the list: a Matrix
+  `MaxRoomMembers()`, and how many IRC lines one relayed message becomes,
+  at `MaxIrcLines()`. The difference is who is filling the list: a Matrix
   member had to sign in, and a channel participant is whoever a remote
   server says is there.
 
@@ -440,10 +441,24 @@ said on the channel is ever attributed to somebody it was not.
 is many on IRC, and control characters in a line are commands to a server.
 Outbound text is split on CR and LF before anything else, so a Matrix
 message cannot become a second IRC command, and each resulting line is cut
-to `IrcLineBudget` bytes. What is *not* yet bounded is how many lines one
-Matrix message may become, or how fast a client may offer them — a large
-message becomes a long queue, and the cost of that lands on a third-party
-network rather than on this server.
+to `IrcLineBudget` bytes.
+
+How many lines one message may become is bounded by `MaxIrcLines`, and a
+message over it is **refused** rather than relayed in part. Length alone
+would not have bounded it: newlines split first and always, so a hundred
+bytes of them is fifty lines, well inside `MaxEventBody`. Refusing rather
+than truncating is the same choice `BridgeDown` makes — a client told its
+message failed can send it again, and one told it succeeded cannot. The
+bound applies only in a room that is carried; a room that goes nowhere
+pays none of this cost and keeps `MaxEventBody` as its only limit.
+
+What is still **not** bounded is how fast a client may offer messages.
+`PUT .../send` has no rate limit, per user or per room, anywhere. The
+connection paces what it sends and drops past its queue depth, so a client
+sending continuously still costs the operator their standing on a network
+they do not run — the blast radius of that is a flood or a K-line under
+the sending user's own nickname. A rate limit in front of marilwyd is the
+answer today, as it is for the login cost above.
 
 ## The bridge configuration
 
