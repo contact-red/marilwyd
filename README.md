@@ -18,6 +18,10 @@ Accounts come from a file of password hashes — there is no registration
 endpoint. Sessions live in memory, so a restart ends all of them. Everything
 Element asks for beyond the table below answers `M_UNRECOGNIZED`.
 
+[docs/architecture.md](docs/architecture.md) describes the actors marilwyd
+is built from and the message sequence behind every operation, with a
+diagram each.
+
 **A room is entered by naming it, and usually by being asked.** A room made
 with an alias or a place in the public directory is public: asking to be
 found is asking for people to arrive uninvited. Every other room is
