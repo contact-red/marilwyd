@@ -345,7 +345,7 @@ sequenceDiagram
     Note over RD: records the channel by alias.<br/>No room is made and nothing connects.
     M->>HS: Server(auth, routes, this)
     HS-->>M: listening(host, port)
-    M->>Op: "marilwyd: listening on …"
+    M->>Op: marilwyd, listening on host and port
 ```
 
 ### Login
@@ -382,7 +382,7 @@ sequenceDiagram
     participant SR as SessionRegistry
     participant D as Device
 
-    C->>SH: GET /sync?since=…&timeout=…
+    C->>SH: GET /sync with since and timeout
     SH->>SR: resolve(token, this)
     SR-->>SH: token_resolved(session)
     SH->>D: sync(since, wait, this)
@@ -405,11 +405,11 @@ sequenceDiagram
     participant R as Room
     participant U as User
 
-    C->>SH: GET /sync?since=s5&timeout=25000
+    C->>SH: GET /sync since=s5, timeout=25000
     SH->>T: arm MaxSyncWait (25 s, under hobby's 30 s watchdog)
     SH->>D: sync(5, 25000, this)
     D->>D: nothing owed → park (_parked, _parked_since)
-    Note over D: the request is held; no response yet
+    Note over D: the request is held, with no response yet
 
     R->>U: deliver(event)
     U->>D: deliver(event)
@@ -422,7 +422,7 @@ sequenceDiagram
         T-->>SH: waited()
         SH->>D: expired(this)
         D-->>SH: synced(view) — just a position
-        SH-->>C: 200 {"next_batch": …}
+        SH-->>C: 200 carrying next_batch only
     end
 ```
 
@@ -471,7 +471,7 @@ sequenceDiagram
     SR-->>IH: users_found(known, unknown)
     IH->>R: invite(invitee, by, account?, this)
     R->>R: is `by` a member? otherwise refuse
-    R->>R: _state.invite + m.room.member {"membership":"invite"}
+    R->>R: _state.invite, then an m.room.member invite event
     R->>U2: invited(room_id, state)
     U2->>D2: invited(room_id, state) — and kept, for devices that sign in later
     D2->>D2: _wake()
@@ -618,7 +618,7 @@ sequenceDiagram
     Note over R: bounded by MaxRoomMembers — the far side fills this list
 
     IRC-->>UL: PRIVMSG / NOTICE / CTCP ACTION
-    UL->>UL: skip my own nick; ValidUtf8; GhostLocalpart
+    UL->>UL: skip my own nick, then ValidUtf8 and GhostLocalpart
     UL->>R: admit_ghost, then send(ghost, m.room.message, …)
     R->>U: deliver(event)
     U->>D: deliver(event)
@@ -644,7 +644,7 @@ sequenceDiagram
     alt transient — the library will retry
         IRC-->>UL: dropped(why)
         UL->>R: carrier_stalled(user_id)
-        Note over R: the member keeps the room;<br/>send refuses with BridgeDown (502)
+        Note over R: the member keeps the room,<br/>and send refuses with BridgeDown (502)
         IRC-->>UL: registered again → JOIN
         UL->>R: carrier_carrying(user_id)
     else terminal — no further attempt
@@ -670,7 +670,7 @@ sequenceDiagram
     alt bridged
         R-->>MH: room_is_bridged(channel, network)
         MH->>LD: close(user_id, channel, network)
-        LD->>LD: drop the entry; the link parts and quits
+        LD->>LD: drop the entry, and the link parts and quits
     end
     MH->>R: leave(user_id, this)
     R->>R: membership event, remove from members / watching / carrying / stalled
