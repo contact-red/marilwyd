@@ -43,6 +43,10 @@ primitive Routes
 
     let app = hobby.Application
 
+    // Before anything else, including the logger: a path that walks
+    // upward is refused whatever it was aimed at.
+    app.add_request_interceptor(_ContainedPath)
+
     match log
     | let out: OutStream tag =>
       // One start for both, so the two halves of a request are stamped on

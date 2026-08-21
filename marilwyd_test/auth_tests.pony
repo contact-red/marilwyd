@@ -416,3 +416,64 @@ class \nodoc\ iso _TestTokensAreUnguessable is UnitTest
     else
       h.fail("the CSPRNG refused to mint a token")
     end
+
+class \nodoc\ iso _TestAnUpwardPathIsRefused is UnitTest
+  """
+  A request that walks upward out of the asset root is refused, with no
+  credential involved.
+
+  `hobby.ServeFiles` relies on `FilePath.from` to keep a request inside the
+  root, and in every released ponyc that containment check is a bare
+  string-prefix test: `Path.join` resolves the `..` first, so an asset root
+  of `/srv/element` accepts `/srv/element-config/x` because the one string
+  begins with the other. Any sibling whose name extends the root's is
+  readable by anyone who can reach the socket.
+  """
+  fun name(): String => "auth/a path walking out of the root is refused"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/element/../secrets/key"),
+      {(r) =>
+        h.assert_true(
+          r.contains("HTTP/1.1 400 Bad Request\r\n"),
+          "a path with a .. segment was not refused: " + r)
+      } val)
+
+class \nodoc\ iso _TestAnOrdinaryAssetPathIsServed is UnitTest
+  """
+  And an ordinary path still is, so the gate is a gate rather than a wall.
+  """
+  fun name(): String => "auth/an ordinary asset path is served"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/element/index.html"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(r.contains("fixture"), r)
+      } val)
+
+class \nodoc\ iso _TestADotDotFilenameIsNotRefused is UnitTest
+  """
+  A name that merely begins with two dots is not a walk upward.
+
+  The check is on segments and not on the characters: a file honestly
+  called `..config` goes nowhere near its parent, and refusing it would be
+  a quieter bug of the same family.
+  """
+  fun name(): String => "auth/a filename beginning with dots is allowed"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/element/..config"),
+      {(r) =>
+        // Absent from the fixture, so a 404 — but reaching the file
+        // server at all is what is being asserted.
+        h.assert_false(
+          r.contains("HTTP/1.1 400 Bad Request\r\n"),
+          "an ordinary filename was refused as a traversal: " + r)
+      } val)
