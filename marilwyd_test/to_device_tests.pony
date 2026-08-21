@@ -8,8 +8,8 @@ class \nodoc\ iso _TestAToDeviceEventRenders is UnitTest
     let rendered =
       ToDeviceEvent("@alice:x", "m.room.encrypted", "{\"c\":1}").render()
     h.assert_eq[String](
-      "{\"sender\":\"@alice:x\",\"type\":\"m.room.encrypted\""
-        + ",\"content\":{\"c\":1}}",
+      "{\"sender\":\"@alice:x\",\"type\":\"m.room.encrypted\"" +
+        ",\"content\":{\"c\":1}}",
       rendered)
 
 class \nodoc\ iso _TestNoKeysClaimedRendersEmpty is UnitTest

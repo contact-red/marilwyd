@@ -169,8 +169,8 @@ actor UserLink is (irc.IRCNotify & RoomMember)
       // here means the connection died between that check and this
       // message. Rare, and still somebody's words going nowhere, so it is
       // said rather than dropped in silence.
-      _say(_user_id + ": a message was lost as " + _network.name
-        + " went away")
+      _say(_user_id + ": a message was lost as " + _network.name +
+        " went away")
     end
 
   be part() =>
@@ -539,8 +539,8 @@ actor UserLink is (irc.IRCNotify & RoomMember)
       room.send(
         _ghost(who, settled),
         "m.room.message",
-        "{\"msgtype\":\"" + kind + "\",\"body\":"
-          + JSONPrinter.print(ValidUtf8(said)) + "}",
+        "{\"msgtype\":\"" + kind + "\",\"body\":" +
+          JSONPrinter.print(ValidUtf8(said)) + "}",
         _IgnoreRelay)
     end
 

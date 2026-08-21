@@ -44,8 +44,8 @@ class \nodoc\ iso _TestSendingToARoomThatDoesNotExist is UnitTest
       {(token) =>
         _Send(
           "PUT",
-          "/_matrix/client/v3/rooms/%21nope%3Aexample.test"
-            + "/send/m.room.message/1",
+          "/_matrix/client/v3/rooms/%21nope%3Aexample.test" +
+            "/send/m.room.message/1",
           "{\"body\":\"hello\"}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
@@ -344,10 +344,10 @@ class \nodoc\ iso _TestAnInvitationLetsThemIn is UnitTest
           }
           {(mine, theirs, before) =>
             _Post(
-              "/_matrix/client/v3/rooms/" + _Escaped(_IdIn(before, 0))
-                + "/invite",
-              "{\"user_id\":\"@" + _OtherUser.localpart()
-                + ":example.test\"}",
+              "/_matrix/client/v3/rooms/" + _Escaped(_IdIn(before, 0)) +
+                "/invite",
+              "{\"user_id\":\"@" + _OtherUser.localpart() +
+                ":example.test\"}",
               "Authorization: Bearer " + mine + "\r\n")
           }
           {(mine, theirs, before) =>
@@ -422,15 +422,15 @@ class \nodoc\ iso _TestARoomAskedToBeEncryptedIsEncrypted is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/createRoom",
-          "{\"name\":\"quiet\",\"initial_state\":[{"
-            + "\"type\":\"m.room.encryption\",\"state_key\":\"\","
-            + "\"content\":{\"algorithm\":\"m.megolm.v1.aes-sha2\"}}]}",
+          "{\"name\":\"quiet\",\"initial_state\":[{" +
+            "\"type\":\"m.room.encryption\",\"state_key\":\"\"," +
+            "\"content\":{\"algorithm\":\"m.megolm.v1.aes-sha2\"}}]}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, first) =>
         _Get(
-          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0))
-            + "/state",
+          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0)) +
+            "/state",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r) =>
@@ -461,8 +461,8 @@ class \nodoc\ iso _TestAnOrdinaryRoomIsNotEncrypted is UnitTest
       } val,
       {(token, login, first) =>
         _Get(
-          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0))
-            + "/state",
+          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0)) +
+            "/state",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r) =>
@@ -507,8 +507,8 @@ class \nodoc\ iso _TestAnOrdinaryRoomTakesALongMessage is UnitTest
       {(token, login, first)(many) =>
         _Send(
           "PUT",
-          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0))
-            + "/send/m.room.message/txn1",
+          "/_matrix/client/v3/rooms/" + _Escaped(_IdIn([first], 0)) +
+            "/send/m.room.message/txn1",
           "{\"msgtype\":\"m.text\",\"body\":\"" + many + "\"}",
           "Authorization: Bearer " + token + "\r\n")
       } val,

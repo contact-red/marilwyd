@@ -301,8 +301,8 @@ actor SessionRegistry
     """
     var index: USize = 0
     for session in _sessions.values() do
-      if (session.user_id == user_id)
-        and (session.device.string() == device.string())
+      if (session.user_id == user_id) and
+        (session.device.string() == device.string())
       then
         _remove(index)
         return

@@ -245,10 +245,10 @@ actor Device
     _pending = _pending.acknowledged(since)
     _acknowledge_to_device(since)
 
-    if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0)
-      or (since is None) or _account_unseen(since) or (_invites.size() > 0)
-      or (_describing(since).size() > 0)
-      or (_ephemeral_since(since).size() > 0)
+    if (_pending.size() > 0) or (_to_device_waiting() > 0) or (wait == 0) or
+      (since is None) or _account_unseen(since) or (_invites.size() > 0) or
+      (_describing(since).size() > 0) or
+      (_ephemeral_since(since).size() > 0)
     then
       _answer(receiver, since)
     else

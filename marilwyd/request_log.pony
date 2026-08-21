@@ -53,8 +53,8 @@ class val _LogRequest is hobby.RequestInterceptor
 
   fun apply(request: stallion.Request box): hobby.InterceptResult =>
     _out.print(
-      _LogClock.stamp(_start) + "--> " + request.method.string() + " "
-        + request.uri.path)
+      _LogClock.stamp(_start) + "--> " + request.method.string() + " " +
+        request.uri.path)
     hobby.InterceptPass
 
 class val _LogResponse is hobby.ResponseInterceptor
@@ -74,5 +74,5 @@ class val _LogResponse is hobby.ResponseInterceptor
 
   fun apply(ctx: hobby.ResponseContext ref) =>
     _out.print(
-      _LogClock.stamp(_start) + "<-- " + ctx.status().code().string() + " "
-        + ctx.request().method.string() + " " + ctx.request().uri.path)
+      _LogClock.stamp(_start) + "<-- " + ctx.status().code().string() + " " +
+        ctx.request().method.string() + " " + ctx.request().uri.path)

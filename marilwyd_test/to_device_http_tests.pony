@@ -42,8 +42,8 @@ class \nodoc\ iso _TestAClaimFindsAnUploadedKey is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/upload",
-          "{\"one_time_keys\":{\"signed_curve25519:aaa\":"
-            + "{\"key\":\"secret\"}}}",
+          "{\"one_time_keys\":{\"signed_curve25519:aaa\":" +
+            "{\"key\":\"secret\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, first) =>
@@ -51,9 +51,9 @@ class \nodoc\ iso _TestAClaimFindsAnUploadedKey is UnitTest
         // the case a client actually exercises when it talks to itself.
         _Post(
           "/_matrix/client/v3/keys/claim",
-          "{\"one_time_keys\":{\"@" + _TestUser.localpart()
-            + ":example.test\":{\"" + _DeviceFrom(login) + "\":"
-            + "\"signed_curve25519\"}}}",
+          "{\"one_time_keys\":{\"@" + _TestUser.localpart() +
+            ":example.test\":{\"" + _DeviceFrom(login) + "\":" +
+            "\"signed_curve25519\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r) =>
@@ -71,8 +71,8 @@ class \nodoc\ iso _TestAClaimForAnUnknownDeviceIsEmpty is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/claim",
-          "{\"one_time_keys\":{\"@" + _TestUser.localpart()
-            + ":example.test\":{\"NOSUCHDEVICE\":\"signed_curve25519\"}}}",
+          "{\"one_time_keys\":{\"@" + _TestUser.localpart() +
+            ":example.test\":{\"NOSUCHDEVICE\":\"signed_curve25519\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r, held) =>
@@ -94,8 +94,8 @@ class \nodoc\ iso _TestAClaimForAnUnknownAccountIsEmpty is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/claim",
-          "{\"one_time_keys\":{\"@nobody:example.test\":"
-            + "{\"AAA\":\"signed_curve25519\"}}}",
+          "{\"one_time_keys\":{\"@nobody:example.test\":" +
+            "{\"AAA\":\"signed_curve25519\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r, held) =>
@@ -118,8 +118,8 @@ class \nodoc\ iso _TestASentMessageReachesTheNextSync is UnitTest
         _Send(
           "PUT",
           "/_matrix/client/v3/sendToDevice/m.room.encrypted/txn1",
-          "{\"messages\":{\"@" + _TestUser.localpart() + ":example.test\":"
-            + "{\"*\":{\"ciphertext\":\"opaque\"}}}}",
+          "{\"messages\":{\"@" + _TestUser.localpart() + ":example.test\":" +
+            "{\"*\":{\"ciphertext\":\"opaque\"}}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, first) =>

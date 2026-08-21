@@ -270,8 +270,8 @@ class \nodoc\ iso _TestTypingReachesTheRoomsSync is UnitTest
           end
         _Send(
           "PUT",
-          "/_matrix/client/v3/rooms/" + room + "/typing/%40"
-            + _TestUser.localpart() + "%3Aexample.test",
+          "/_matrix/client/v3/rooms/" + room + "/typing/%40" +
+            _TestUser.localpart() + "%3Aexample.test",
           "{\"typing\":true,\"timeout\":30000}",
           "Authorization: Bearer " + token + "\r\n")
       } val,

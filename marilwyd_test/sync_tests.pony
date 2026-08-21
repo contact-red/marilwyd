@@ -90,8 +90,8 @@ class \nodoc\ iso _TestMaxSyncWaitIsUnderTheWatchdog is UnitTest
     | let watchdog: hobby.HandlerTimeout =>
       h.assert_true(
         MaxSyncWait() < watchdog(),
-        "cap " + MaxSyncWait().string()
-          + " must stay under hobby's " + watchdog().string())
+        "cap " + MaxSyncWait().string() +
+          " must stay under hobby's " + watchdog().string())
     else
       h.fail("hobby has no default handler timeout to compare against")
     end
@@ -387,8 +387,8 @@ class \nodoc\ iso _TestFilterFetchServesAnEmptyFilter is UnitTest
       h,
       {(token) =>
         _Get(
-          "/_matrix/client/v3/user/%40alice%3Aexample.test/filter/"
-            + _TestFilterID(),
+          "/_matrix/client/v3/user/%40alice%3Aexample.test/filter/" +
+            _TestFilterID(),
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r, held) =>

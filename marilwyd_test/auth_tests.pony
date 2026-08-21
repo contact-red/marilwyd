@@ -216,11 +216,11 @@ primitive _EntryWith
     hash: String)
     : String
   =>
-    "  - localpart: \"" + localpart + "\"\n"
-      + "    algorithm: \"" + algorithm + "\"\n"
-      + "    iterations: " + iterations + "\n"
-      + "    salt: \"" + salt + "\"\n"
-      + "    hash: \"" + hash + "\"\n"
+    "  - localpart: \"" + localpart + "\"\n" +
+      "    algorithm: \"" + algorithm + "\"\n" +
+      "    iterations: " + iterations + "\n" +
+      "    salt: \"" + salt + "\"\n" +
+      "    hash: \"" + hash + "\"\n"
 
 primitive _Users
   """
@@ -317,8 +317,8 @@ class \nodoc\ iso _TestUnknownUserIsIndistinguishable is UnitTest
 
   fun apply(h: TestHelper) =>
     let body =
-      "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\","
-        + "\"user\":\"nobody\"},\"password\":\"whatever\"}"
+      "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\"," +
+        "\"user\":\"nobody\"},\"password\":\"whatever\"}"
     _Serve(
       h,
       _Post("/_matrix/client/v3/login", body),
@@ -334,9 +334,9 @@ primitive _PasswordLogin
     localpart: String = _TestUser.localpart())
     : String
   =>
-    "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\","
-      + "\"user\":\"" + localpart + "\"},"
-      + "\"password\":\"" + password + "\"}"
+    "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\"," +
+      "\"user\":\"" + localpart + "\"}," +
+      "\"password\":\"" + password + "\"}"
 
 // ------------------------------------------- unimplemented matrix endpoints
 class \nodoc\ iso _TestUnimplementedRejectsStaleToken is UnitTest

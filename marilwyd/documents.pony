@@ -480,8 +480,8 @@ primitive AliasResolved
   should try when joining, and marilwyd federates with none.
   """
   fun apply(room_id: String, server_name: String): String =>
-    "{\"room_id\":" + JSONPrinter.print(room_id)
-      + ",\"servers\":[" + JSONPrinter.print(server_name) + "]}"
+    "{\"room_id\":" + JSONPrinter.print(room_id) +
+      ",\"servers\":[" + JSONPrinter.print(server_name) + "]}"
 
 primitive PublicRooms
   """

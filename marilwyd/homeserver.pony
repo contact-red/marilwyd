@@ -99,8 +99,8 @@ primitive MakeHomeserver
       if (ch <= ' ') or (ch == 0x7f) then
         return StartupError(
           "server-name",
-          "--server-name must not contain whitespace or control characters: '"
-            + server_name + "'")
+          "--server-name must not contain whitespace or control characters: '" +
+            server_name + "'")
       end
     end
 

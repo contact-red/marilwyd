@@ -197,7 +197,9 @@ class \nodoc\ iso _TestPendingVersionsAreIndependent is UnitTest
   fun apply(h: TestHelper) =>
     try
       let room = _AnyRoom()?
-      let first = Pending[RoomEvent].push(1, _Message(room, "@alice:example.test", 0)?)
+      let first =
+        Pending[RoomEvent]
+          .push(1, _Message(room, "@alice:example.test", 0)?)
       let second = first.push(2, _Message(room, "@alice:example.test", 1)?)
       h.assert_eq[USize](1, first.size(), "the earlier version grew")
       h.assert_eq[USize](2, second.size())
