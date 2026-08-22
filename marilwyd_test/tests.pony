@@ -106,7 +106,7 @@ class \nodoc\ iso _TestUnrecognizedEndpointIsJSON is UnitTest
   fun apply(h: TestHelper) =>
     _Serve(
       h,
-      _Get("/_matrix/client/v3/capabilities"),
+      _Get(_UnimplementedPath()),
       {(r) =>
         h.assert_true(r.contains("HTTP/1.1 404 Not Found\r\n"), r)
         _AssertErrcode(h, r, "M_UNRECOGNIZED")
@@ -151,6 +151,95 @@ class \nodoc\ iso _TestLoginPostRefusesInMatrixVocabulary is UnitTest
       {(r) =>
         h.assert_true(r.contains("HTTP/1.1 400 Bad Request\r\n"), r)
         _AssertErrcode(h, r, "M_MISSING_PARAM")
+      } val)
+
+class \nodoc\ iso _TestCapabilitiesRequireAToken is UnitTest
+  """
+  The specification authenticates this endpoint, and a constant document is
+  the easy thing to serve to everyone by mistake.
+  """
+  fun name(): String => "capabilities/no token is M_MISSING_TOKEN"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/_matrix/client/v3/capabilities"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestCapabilitiesSayNothingMayChange is UnitTest
+  """
+  Element renders a control for each of these and disables it when the
+  capability says false, so a `true` here — or a missing entry, which the
+  client reads as true — offers a person a button that cannot work.
+  """
+  fun name(): String => "capabilities/a session is told what it cannot change"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/capabilities",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        for capability in
+          [ "m.change_password"; "m.set_displayname"; "m.set_avatar_url"
+            "m.3pid_changes" ].values()
+        do
+          h.assert_true(
+            r.contains("\"" + capability + "\":{\"enabled\":false}"),
+            capability + ": " + r)
+        end
+        // The version marilwyd's rooms are, since their `m.room.create`
+        // names none. A client compares each room it is in against this
+        // default and recommends an upgrade where the two differ.
+        h.assert_true(r.contains("\"default\":\"1\""), r)
+        h.assert_true(r.contains("\"available\":{\"1\":\"stable\"}"), r)
+      } val)
+
+class \nodoc\ iso _TestThirdPartyProtocolsAreEmpty is UnitTest
+  """
+  An empty map and not a refusal: Element reads this before offering to
+  dial a number, and retries when it cannot.
+  """
+  fun name(): String => "thirdparty/a session gets an empty protocol map"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/thirdparty/protocols",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_true(r.contains("{}"), r)
+      } val)
+
+class \nodoc\ iso _TestTurnServerOffersNoRelay is UnitTest
+  """
+  `uris` has to be absent rather than empty. A client reads the key's
+  presence as a relay to try.
+  """
+  fun name(): String => "turnServer/a session gets no relay"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/voip/turnServer",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        h.assert_false(r.contains("uris"), r)
       } val)
 
 primitive _UnimplementedPath

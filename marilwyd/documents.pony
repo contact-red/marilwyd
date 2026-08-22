@@ -418,6 +418,68 @@ primitive EmptyFilter
   """
   fun apply(): String => JSONPrinter.print(JSONObject)
 
+primitive Capabilities
+  """
+  `GET /_matrix/client/v3/capabilities`.
+
+  What an account may change about itself, which here is nothing. A
+  password comes from the credentials file, and there is no endpoint that
+  writes a display name, an avatar or a third-party identifier. Element
+  reads all four and hides the control rather than offering one that
+  fails.
+
+  Answering at all is what ends the asking. Measured against Element
+  1.12.25: matrix-js-sdk re-polls this endpoint thirty seconds after every
+  failure, for as long as it keeps failing, and settles to a refresh six
+  hours apart once it reads a document.
+
+  `m.room_versions` names version 1 because that is what marilwyd's rooms
+  already are — a room whose `m.room.create` carries no `room_version` is
+  version 1 by the specification's rule, and none of them carries one. It
+  describes the rooms rather than claiming to implement a version's rules;
+  `MakeEventId` says why marilwyd implements none.
+  """
+  fun apply(): String =>
+    let disabled = JSONObject.update("enabled", false)
+    let versions = JSONObject
+      .update("default", "1")
+      .update("available", JSONObject.update("1", "stable"))
+
+    JSONPrinter.print(
+      JSONObject.update(
+        "capabilities",
+        JSONObject
+          .update("m.change_password", disabled)
+          .update("m.set_displayname", disabled)
+          .update("m.set_avatar_url", disabled)
+          .update("m.3pid_changes", disabled)
+          .update("m.room_versions", versions)))
+
+primitive ThirdPartyProtocols
+  """
+  `GET /_matrix/client/v3/thirdparty/protocols`.
+
+  No protocols. This document describes what an application service
+  bridges, and marilwyd hosts none: its IRC bridge is part of the server,
+  and a bridged channel is reached through the room directory under its
+  alias.
+
+  Empty rather than refused because Element reads it for PSTN support
+  before it will offer to dial a number, and a refusal is retried twice at
+  ten-second intervals before it gives up.
+  """
+  fun apply(): String => JSONPrinter.print(JSONObject)
+
+primitive TurnServers
+  """
+  `GET /_matrix/client/v3/voip/turnServer`.
+
+  No relay credentials. `uris` is absent, which leaves a client to reach
+  its peer directly or not at all — marilwyd carries no call signalling
+  either, so there is nothing here for a relay to carry.
+  """
+  fun apply(): String => JSONPrinter.print(JSONObject)
+
 primitive MissingToken
   """
   The body for a request to an authenticated endpoint that offered no token.
