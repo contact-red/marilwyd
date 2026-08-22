@@ -121,8 +121,8 @@ actor \nodoc\ _LinkUnderTest is (StateReceiver & RoomCreationReceiver
 
     match \exhaustive\ _which
     | _MirrorsMembership =>
-      _feed(":irc.example.test 353 alice[marilwyd] = #pony "
-        + ":@bob +carol dave erin frank alice[marilwyd]")
+      _feed(":irc.example.test 353 alice[marilwyd] = #pony " +
+        ":@bob +carol dave erin frank alice[marilwyd]")
       _feed(":irc.example.test 366 alice[marilwyd] #pony :End of /NAMES")
       _feed(":dave!u@h PART #pony :bye")
       _feed(":carol!u@h QUIT :ping timeout")
@@ -203,9 +203,9 @@ actor \nodoc\ _LinkUnderTest is (StateReceiver & RoomCreationReceiver
   fun _check_ping() =>
     var answered = false
     for line in _sent.values() do
-      if line.contains("NOTICE")
-        and line.contains("bob")
-        and line.contains("PING 12345")
+      if line.contains("NOTICE") and
+        line.contains("bob") and
+        line.contains("PING 12345")
       then
         answered = true
       end
@@ -250,13 +250,13 @@ actor \nodoc\ _LinkUnderTest is (StateReceiver & RoomCreationReceiver
       if event.sender != "@irc_net_bob:example.test" then
         continue
       end
-      if event.content.contains("\"msgtype\":\"m.emote\"")
-        and event.content.contains("waves")
+      if event.content.contains("\"msgtype\":\"m.emote\"") and
+        event.content.contains("waves")
       then
         emoted = true
       end
-      if event.content.contains("\"msgtype\":\"m.notice\"")
-        and event.content.contains("build is red")
+      if event.content.contains("\"msgtype\":\"m.notice\"") and
+        event.content.contains("build is red")
       then
         noticed = true
       end
@@ -598,8 +598,8 @@ actor \nodoc\ _LinkLifecycle is (RoomCreationReceiver & EventReceiver
 
   be state_listed(events: Array[RoomEvent] val) =>
     for event in events.values() do
-      if (event.kind == "m.room.member")
-        and (event.state_key is None)
+      if (event.kind == "m.room.member") and
+        (event.state_key is None)
       then
         continue
       end
@@ -818,8 +818,8 @@ actor \nodoc\ _OutboundRelay is (RoomCreationReceiver & EventReceiver
     _room.send(
       "@alice:example.test",
       "m.room.encrypted",
-      "{\"algorithm\":\"m.megolm.v1.aes-sha2\","
-        + "\"ciphertext\":\"AwgAEnB5cGhlcnRleHQ\"}",
+      "{\"algorithm\":\"m.megolm.v1.aes-sha2\"," +
+        "\"ciphertext\":\"AwgAEnB5cGhlcnRleHQ\"}",
       this)
     _send("@alice:example.test", "m.text", _Finished())
 

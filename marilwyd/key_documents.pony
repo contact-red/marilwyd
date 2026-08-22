@@ -36,7 +36,7 @@ primitive KeysQueried
           out.append(",")
         end
         first = false
-        out.append(JsonPrinter.print(user_id))
+        out.append(JSONPrinter.print(user_id))
         out.append(":{")
         var device_first = true
         for device in keys.devices.values() do
@@ -44,7 +44,7 @@ primitive KeysQueried
             out.append(",")
           end
           device_first = false
-          out.append(JsonPrinter.print(device.device_id))
+          out.append(JSONPrinter.print(device.device_id))
           out.append(":")
           out.append(device.content)
         end
@@ -91,7 +91,7 @@ primitive _CrossSigning
           out.append(",")
         end
         first = false
-        out.append(JsonPrinter.print(user_id))
+        out.append(JSONPrinter.print(user_id))
         out.append(":")
         out.append(content)
       end
@@ -105,7 +105,7 @@ primitive KeyBackupCreated
   The body of `POST /_matrix/client/v3/room_keys/version`.
   """
   fun apply(version: String): String =>
-    "{\"version\":" + JsonPrinter.print(version) + "}"
+    "{\"version\":" + JSONPrinter.print(version) + "}"
 
 primitive NoKeyBackup
   """

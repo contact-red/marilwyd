@@ -23,13 +23,13 @@ primitive Localpart
 
     for c in localpart.values() do
       let ok =
-        ((c >= 'a') and (c <= 'z'))
-          or ((c >= '0') and (c <= '9'))
-          or (c == '.') or (c == '_') or (c == '=')
-          or (c == '/') or (c == '+') or (c == '-')
+        ((c >= 'a') and (c <= 'z')) or
+          ((c >= '0') and (c <= '9')) or
+          (c == '.') or (c == '_') or (c == '=') or
+          (c == '/') or (c == '+') or (c == '-')
       if not ok then
-        return "a localpart may hold only a-z, 0-9 and ._=/+- : '"
-          + localpart + "'"
+        return "a localpart may hold only a-z, 0-9 and ._=/+- : '" +
+          localpart + "'"
       end
     end
 

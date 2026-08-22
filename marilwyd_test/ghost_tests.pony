@@ -16,8 +16,8 @@ class \nodoc\ iso _TestAGhostNameIsAddressable is UnitTest
       let mapped = GhostLocalpart(nick)
       match Localpart.check(mapped)
       | let why: String =>
-        h.fail(nick + " mapped to something unusable: " + mapped
-          + " (" + why + ")")
+        h.fail(nick + " mapped to something unusable: " + mapped +
+          " (" + why + ")")
       end
     end
 

@@ -18,9 +18,9 @@ primitive GhostLocalpart
     let out = String(folded.size() + 8)
     for c in folded.values() do
       let plain =
-        (((c >= 'a') and (c <= 'z')) or ((c >= '0') and (c <= '9'))
-          or (c == '.') or (c == '_') or (c == '/') or (c == '+')
-          or (c == '-'))
+        (((c >= 'a') and (c <= 'z')) or ((c >= '0') and (c <= '9')) or
+          (c == '.') or (c == '_') or (c == '/') or (c == '+') or
+          (c == '-'))
       if plain then
         out.push(c)
       else
@@ -51,15 +51,15 @@ primitive _WellFormed
 
     let second = try bytes(at + 1)? else 0 end
     if width == 3 then
-      if ((first == 0xe0) and (second < 0xa0))
-        or ((first == 0xed) and (second > 0x9f))
+      if ((first == 0xe0) and (second < 0xa0)) or
+        ((first == 0xed) and (second > 0x9f))
       then
         return false
       end
     end
     if width == 4 then
-      if ((first == 0xf0) and (second < 0x90))
-        or ((first == 0xf4) and (second > 0x8f))
+      if ((first == 0xf0) and (second < 0x90)) or
+        ((first == 0xf4) and (second > 0x8f))
       then
         return false
       end

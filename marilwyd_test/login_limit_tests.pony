@@ -175,8 +175,8 @@ class \nodoc\ iso _TestEveryBodyLimitCanFire is UnitTest
     for (named, limit) in limits.values() do
       h.assert_true(
         limit <= MaxRequestBody(),
-        named + " is " + limit.string() + ", above the transport cap of "
-          + MaxRequestBody().string() + ", so it can never fire")
+        named + " is " + limit.string() + ", above the transport cap of " +
+          MaxRequestBody().string() + ", so it can never fire")
     end
 
 class \nodoc\ iso _TestAnOversizedKeyUploadIsRefused is UnitTest

@@ -29,7 +29,7 @@ primitive FullyRead
     : (String | None)
   =>
     match _KeysBody(body)
-    | let sent: JsonObject =>
+    | let sent: JSONObject =>
       try
         match sent("m.read")?
         | let event_id: String => return event_id.clone()
@@ -210,7 +210,7 @@ actor _TypingHandler is
 
   fun _wants(): Bool =>
     match _KeysBody(_body)
-    | let sent: JsonObject =>
+    | let sent: JSONObject =>
       try
         match sent("typing")?
         | let active: Bool => return active

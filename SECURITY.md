@@ -8,29 +8,24 @@ path needs — it includes the element-call widget, a second bundled
 application, and source maps. Narrowing the served set is a future change, not
 a current guarantee.
 
-`_AssetRoot` canonicalises the root at startup, and `hobby.ServeFiles` resolves
-every request path through `FilePath.from`, which is meant to keep the result
-within that root.
+Requests are kept inside that root twice over. `_AssetRoot` canonicalises the
+root at startup and `hobby.ServeFiles` resolves every request path through
+`FilePath.from`, which contains the result; and `_ContainedPath` refuses any
+request whose path carries a `..` segment before routing, so a request that
+walks upward never reaches a handler at all.
 
-**It does not, in any released ponyc.** `FilePath.from` joins the two paths —
-which resolves `..` — and then tests that the result begins with the root, as
-a string, with no separator boundary. An asset root of `/srv/element` therefore
-accepts `/srv/element-config/x`, because one string begins with the other. Any
-sibling directory whose name extends the root's is readable by anyone who can
-reach the socket, with no credential. The fix is on ponyc's `main` and in no
-release, so marilwyd cannot wait for it.
+The second is deliberate belt and braces. Containment is a property of a
+dependency's dependency — marilwyd calls neither `ServeFiles` nor
+`FilePath.from` itself — and a server that reads files out of a directory
+should be able to say for itself that it does not leave one. It is one
+interceptor rather than a check on each of the two asset mounts, so a third
+mount cannot be added without it.
 
-`_ContainedPath` refuses any request whose path carries a `..` segment, before
-routing and before any handler exists. One interceptor rather than a check on
-each of the two asset mounts, so a third mount cannot be added without it. The
-comparison is on segments and not on characters: a file named `..config` is not
-a walk upward, and refusing it would be a bug of a quieter kind. Nothing between
-the socket and `FilePath.from` percent-decodes, so `%2e%2e` arrives as six
-characters naming a directory rather than as a parent reference.
-
-This stays after a fixed ponyc ships. The bug is in a transitive property of a
-dependency's dependency, and it is cheaper to keep the check than to reason
-about which toolchain built the binary in front of you.
+The comparison is on path segments and not on characters: a file named
+`..config` is not a walk upward, and refusing it would be a bug of a quieter
+kind. Nothing between the socket and `FilePath.from` percent-decodes, so
+`%2e%2e` arrives as six characters naming a directory rather than as a parent
+reference.
 
 ## Symlinks are followed
 
@@ -161,7 +156,7 @@ bodies over three rounds took RSS from 9 MB to 200 MB.
 than `MaxLoginDepth()` before the parser builds anything from it. The size
 limit bounds one body's cost; the depth limit bounds its shape, so the
 frame count no longer follows the byte count. Both are checked in a
-streaming pre-pass, since ponyc 0.68.0's `JsonParser` takes no limits and
+streaming pre-pass, since `JSONParser` takes no limits and
 only its token-level counterpart can be stopped mid-document.
 
 Measured after: the same load reaches 30 MB, and a maximally nested body

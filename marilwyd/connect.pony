@@ -36,14 +36,14 @@ primitive Connect
             // the file instead.
             return StartupError(
               "bridge-tls-authority",
-              "the certificate authorities for " + network.name
-                + " could not be loaded from " + store.path)
+              "the certificate authorities for " + network.name +
+                " could not be loaded from " + store.path)
           end
         | None =>
           return StartupError(
             "bridge-tls-authority",
-            "no certificate authorities were found for " + network.name
-              + "; looked for " + _Authority.locations())
+            "no certificate authorities were found for " + network.name +
+              "; looked for " + _Authority.locations())
         end
       else
         // Named, not defaulted. A bridge relaying a room to a network in

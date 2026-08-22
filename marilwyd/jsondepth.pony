@@ -5,10 +5,10 @@ primitive _JSONDeeperThan
   Whether a body nests deeper than a limit, decided before anything is
   built from it.
 
-  A pre-pass rather than a limit on the parse itself: ponyc 0.68.0's
-  `JsonParser` takes no limits, and its streaming counterpart can be
-  stopped mid-document. The document is walked twice as a result, which is
-  microseconds against what any of the callers go on to do.
+  A pre-pass rather than a limit on the parse itself: `JSONParser` takes
+  no limits, and its streaming counterpart can be stopped mid-document.
+  The document is walked twice as a result, which is microseconds against
+  what any of the callers go on to do.
 
   Malformed JSON is not this primitive's business — it answers `false` for
   anything merely unparseable and lets each caller's tree parse produce the
@@ -16,13 +16,18 @@ primitive _JSONDeeperThan
   """
   fun apply(body: Array[U8] val, limit: USize): Bool =>
     let counted: _JSONDepth ref = _JSONDepth(limit)
-    let parser = JsonTokenParser(counted)
+    let parser = JSONTokenParser(counted)
     try
-      parser.parse(String.from_array(body))?
+      // Fed and then finished, because a document that ends mid-token
+      // emits nothing more until it is. Both are partial and both are
+      // ignored: an unparseable body is each caller's tree parse to
+      // refuse, not this one's.
+      parser.feed(String.from_array(body))?
+      parser.finish()?
     end
     counted.exceeded
 
-class ref _JSONDepth is JsonTokenNotify
+class ref _JSONDepth is JSONTokenNotify
   """
   Counts how deep a document nests, and stops the parser once it is past
   the limit it was given.
@@ -38,15 +43,15 @@ class ref _JSONDepth is JsonTokenNotify
   new ref create(limit: USize) =>
     _limit = limit
 
-  fun ref apply(parser: JsonTokenParser, token: JsonToken) =>
+  fun ref apply(parser: JSONTokenParser, token: JSONToken) =>
     match token
-    | JsonTokenObjectStart | JsonTokenArrayStart =>
+    | JSONTokenObjectStart | JSONTokenArrayStart =>
       _depth = _depth + 1
       if _depth > _limit then
         exceeded = true
         parser.abort()
       end
-    | JsonTokenObjectEnd | JsonTokenArrayEnd =>
+    | JSONTokenObjectEnd | JSONTokenArrayEnd =>
       if _depth > 0 then
         _depth = _depth - 1
       end

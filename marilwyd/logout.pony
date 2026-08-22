@@ -173,14 +173,14 @@ primitive _DeviceNames
   fun apply(body: Array[U8] val): (Array[String] val | None) =>
     let parsed =
       match _ObjectBody(body, MaxDeviceNamesBody())
-      | let o: JsonObject => o
+      | let o: JSONObject => o
       else
         return None
       end
 
     let listed =
       match parsed.get_or_else("devices", None)
-      | let a: JsonArray => a
+      | let a: JSONArray => a
       else
         return None
       end

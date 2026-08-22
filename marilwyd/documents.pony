@@ -10,7 +10,7 @@ primitive ElementConfig
   `config.sample.json` is optional.
   """
   fun apply(homeserver: Homeserver): String =>
-    let homeserver_config = JsonObject
+    let homeserver_config = JSONObject
       .update("base_url", homeserver.base_url())
       .update("server_name", homeserver.server_name)
 
@@ -20,11 +20,11 @@ primitive ElementConfig
     // homeserver for comparison, and the "Edit" affordance it controls is
     // also the only way to recover from a marilwyd started with the wrong
     // --server-name.
-    JsonPrinter.print(
-      JsonObject
+    JSONPrinter.print(
+      JSONObject
         .update(
           "default_server_config",
-          JsonObject.update("m.homeserver", homeserver_config))
+          JSONObject.update("m.homeserver", homeserver_config))
         .update("disable_custom_urls", false))
 
 primitive ClientVersions
@@ -37,7 +37,7 @@ primitive ClientVersions
   exist. Re-check when the Element version in the Makefile changes.
   """
   fun apply(): String =>
-    JsonPrinter.print(JsonObject.update("versions", JsonArray.push("v1.1")))
+    JSONPrinter.print(JSONObject.update("versions", JSONArray.push("v1.1")))
 
 primitive LoginFlows
   """
@@ -52,9 +52,9 @@ primitive LoginFlows
   message instead of rendering a form.
   """
   fun apply(): String =>
-    let password = JsonObject.update("type", "m.login.password")
-    JsonPrinter.print(
-      JsonObject.update("flows", JsonArray.push(password)))
+    let password = JSONObject.update("type", "m.login.password")
+    JSONPrinter.print(
+      JSONObject.update("flows", JSONArray.push(password)))
 
 primitive UnrecognizedRequest
   """
@@ -66,7 +66,7 @@ primitive UnrecognizedRequest
   the client treats as a transport failure rather than a known answer.
   """
   fun apply(): String =>
-    JsonPrinter.print(JsonObject
+    JSONPrinter.print(JSONObject
       .update("errcode", "M_UNRECOGNIZED")
       .update("error", "Unrecognized request"))
 
@@ -76,7 +76,7 @@ primitive MatrixError
   person reading a log or a dialog.
   """
   fun apply(errcode: String, message: String): String =>
-    JsonPrinter.print(JsonObject
+    JSONPrinter.print(JSONObject
       .update("errcode", errcode)
       .update("error", message))
 
@@ -94,7 +94,7 @@ primitive LoginSuccess
     server_name': String)
     : String
   =>
-    JsonPrinter.print(JsonObject
+    JSONPrinter.print(JSONObject
       .update("user_id", user_id)
       .update("access_token", access_token')
       .update("device_id", device_id')
@@ -109,7 +109,7 @@ primitive WhoamiSuccess
   way to learn which of an account's sessions the token belongs to.
   """
   fun apply(user_id: String, device: DeviceId): String =>
-    JsonPrinter.print(JsonObject
+    JSONPrinter.print(JSONObject
       .update("user_id", user_id)
       .update("device_id", device.string()))
 
@@ -135,11 +135,11 @@ primitive DeviceList
   client would show to a person is worse than an unnamed session.
   """
   fun apply(found: Array[DeviceId] val): String =>
-    var listed = JsonArray
+    var listed = JSONArray
     for device in found.values() do
-      listed = listed.push(JsonObject.update("device_id", device.string()))
+      listed = listed.push(JSONObject.update("device_id", device.string()))
     end
-    JsonPrinter.print(JsonObject.update("devices", listed))
+    JSONPrinter.print(JSONObject.update("devices", listed))
 
 primitive RoomCreated
   """
@@ -149,14 +149,14 @@ primitive RoomCreated
   gives each of them.
   """
   fun apply(room: RoomId): String =>
-    JsonPrinter.print(JsonObject.update("room_id", room.string()))
+    JSONPrinter.print(JSONObject.update("room_id", room.string()))
 
 primitive EventSent
   """
   The body of a successful send.
   """
   fun apply(id: EventId): String =>
-    JsonPrinter.print(JsonObject.update("event_id", id.string()))
+    JSONPrinter.print(JSONObject.update("event_id", id.string()))
 
 primitive StateEvents
   """
@@ -185,7 +185,7 @@ primitive LogoutSuccess
   The specification defines an empty object for both; there is nothing a
   client needs beyond the status.
   """
-  fun apply(): String => JsonPrinter.print(JsonObject)
+  fun apply(): String => JSONPrinter.print(JSONObject)
 
 primitive SyncDocument
   """
@@ -239,7 +239,7 @@ primitive SyncDocument
 
       let out = String(512)
       out.append("{\"next_batch\":")
-      out.append(JsonPrinter.print(view.next_batch))
+      out.append(JSONPrinter.print(view.next_batch))
       if view.account.size() > 0 then
         out.append(",\"account_data\":{\"events\":[")
         var account_first = true
@@ -272,7 +272,7 @@ primitive SyncDocument
             out.append(",")
           end
           first = false
-          out.append(JsonPrinter.print(room_id))
+          out.append(JSONPrinter.print(room_id))
 
           out.append(":{\"state\":{\"events\":[")
           var state_first = true
@@ -347,7 +347,7 @@ primitive _Invites
         out.append(",")
       end
       room_first = false
-      out.append(JsonPrinter.print(room_id))
+      out.append(JSONPrinter.print(room_id))
       out.append(":{\"invite_state\":{\"events\":[")
       var event_first = true
       for event in state.values() do
@@ -375,14 +375,14 @@ primitive PushRules
   evaluator.
   """
   fun apply(): String =>
-    let kinds = JsonObject
-      .update("content", JsonArray)
-      .update("override", JsonArray)
-      .update("room", JsonArray)
-      .update("sender", JsonArray)
-      .update("underride", JsonArray)
+    let kinds = JSONObject
+      .update("content", JSONArray)
+      .update("override", JSONArray)
+      .update("room", JSONArray)
+      .update("sender", JSONArray)
+      .update("underride", JSONArray)
 
-    JsonPrinter.print(JsonObject.update("global", kinds))
+    JSONPrinter.print(JSONObject.update("global", kinds))
 
 primitive FilterCreated
   """
@@ -402,7 +402,7 @@ primitive FilterCreated
   Every session creates another. Harmless while the id is a constant.
   """
   fun apply(): String =>
-    JsonPrinter.print(JsonObject.update("filter_id", "0"))
+    JSONPrinter.print(JSONObject.update("filter_id", "0"))
 
 primitive EmptyFilter
   """
@@ -416,7 +416,7 @@ primitive EmptyFilter
   owes an unknown filter is unreachable from here. That is the trigger for
   giving filters storage rather than a constant.
   """
-  fun apply(): String => JsonPrinter.print(JsonObject)
+  fun apply(): String => JSONPrinter.print(JSONObject)
 
 primitive MissingToken
   """
@@ -438,7 +438,7 @@ primitive UnknownToken
   position, because sessions are held in memory.
   """
   fun apply(): String =>
-    JsonPrinter.print(JsonObject
+    JSONPrinter.print(JSONObject
       .update("errcode", "M_UNKNOWN_TOKEN")
       .update("error", "Unrecognised access token")
       .update("soft_logout", true))
@@ -480,8 +480,8 @@ primitive AliasResolved
   should try when joining, and marilwyd federates with none.
   """
   fun apply(room_id: String, server_name: String): String =>
-    "{\"room_id\":" + JsonPrinter.print(room_id)
-      + ",\"servers\":[" + JsonPrinter.print(server_name) + "]}"
+    "{\"room_id\":" + JSONPrinter.print(room_id) +
+      ",\"servers\":[" + JSONPrinter.print(server_name) + "]}"
 
 primitive PublicRooms
   """

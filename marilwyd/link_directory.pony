@@ -76,8 +76,8 @@ actor LinkDirectory
       // store that would not load — and the client learns only that its
       // join was refused.
       _env.out.print(
-        "marilwyd: " + user_id + " cannot reach " + network.name + ": "
-          + e.message)
+        "marilwyd: " + user_id + " cannot reach " + network.name + ": " +
+          e.message)
       receiver.join_refused(channel.channel)
     end
 

@@ -6,7 +6,7 @@ class val AccountDatum
   it.
 
   `content` is already-printed JSON, for `RoomEvent`'s reason — a
-  `JsonObject` has no deep copy, so one built by a handler and stored by an
+  `JSONObject` has no deep copy, so one built by a handler and stored by an
   actor would pin that handler, its connection and its request body for as
   long as the data lived.
   """
@@ -24,7 +24,7 @@ class val AccountDatum
     recover val
       String(content.size() + 64)
         .> append("{\"type\":")
-        .> append(JsonPrinter.print(kind))
+        .> append(JSONPrinter.print(kind))
         .> append(",\"content\":")
         .> append(content)
         .> append("}")

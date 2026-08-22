@@ -38,9 +38,9 @@ class \nodoc\ iso _TestKeyUploadAnswersACount is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/upload",
-          "{\"device_keys\":{\"algorithms\":[\"m.olm.v1\"],"
-            + "\"keys\":{\"ed25519:AAA\":\"k\"}},"
-            + "\"one_time_keys\":{\"signed_curve25519:a\":{\"key\":\"1\"}}}",
+          "{\"device_keys\":{\"algorithms\":[\"m.olm.v1\"]," +
+            "\"keys\":{\"ed25519:AAA\":\"k\"}}," +
+            "\"one_time_keys\":{\"signed_curve25519:a\":{\"key\":\"1\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r, held) =>
@@ -62,8 +62,8 @@ class \nodoc\ iso _TestAQueryFindsAnUploadedKey is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/upload",
-          "{\"device_keys\":{\"algorithms\":[\"m.olm.v1\"],"
-            + "\"keys\":{\"ed25519:AAA\":\"published\"}}}",
+          "{\"device_keys\":{\"algorithms\":[\"m.olm.v1\"]," +
+            "\"keys\":{\"ed25519:AAA\":\"published\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, first) =>
@@ -136,8 +136,8 @@ class \nodoc\ iso _TestSignatureUploadIsAccepted is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/signatures/upload",
-          "{\"@" + _TestUser.localpart() + ":example.test\":{\"AAA\":"
-            + "{\"signatures\":{\"@a:x\":{\"ed25519:M\":\"s\"}}}}}",
+          "{\"@" + _TestUser.localpart() + ":example.test\":{\"AAA\":" +
+            "{\"signatures\":{\"@a:x\":{\"ed25519:M\":\"s\"}}}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r, held) =>
@@ -181,8 +181,8 @@ class \nodoc\ iso _TestABackupCanBeMadeAndRead is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/room_keys/version",
-          "{\"algorithm\":\"m.megolm_backup.v1.curve25519-aes-sha2\","
-            + "\"auth_data\":{\"public_key\":\"pk\"}}",
+          "{\"algorithm\":\"m.megolm_backup.v1.curve25519-aes-sha2\"," +
+            "\"auth_data\":{\"public_key\":\"pk\"}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, first) =>
@@ -242,17 +242,17 @@ class \nodoc\ iso _TestAUserSigningKeyIsNotSharedAcrossAccounts is UnitTest
         // the first version of this test passed with the rule removed.
         _Post(
           "/_matrix/client/v3/keys/device_signing/upload",
-          "{\"master_key\":{\"keys\":{\"ed25519:M\":\"m\"}},"
-            + "\"self_signing_key\":{\"keys\":{\"ed25519:S\":\"s\"}},"
-            + "\"user_signing_key\":{\"keys\":{\"ed25519:U\":\"u\"}}}",
+          "{\"master_key\":{\"keys\":{\"ed25519:M\":\"m\"}}," +
+            "\"self_signing_key\":{\"keys\":{\"ed25519:S\":\"s\"}}," +
+            "\"user_signing_key\":{\"keys\":{\"ed25519:U\":\"u\"}}}",
           "Authorization: Bearer " + mine + "\r\n")
       } val,
       {(mine, theirs) =>
         // Now the second account asks about the first.
         _Post(
           "/_matrix/client/v3/keys/query",
-          "{\"device_keys\":{\"@" + _TestUser.localpart()
-            + ":example.test\":[]}}",
+          "{\"device_keys\":{\"@" + _TestUser.localpart() +
+            ":example.test\":[]}}",
           "Authorization: Bearer " + theirs + "\r\n")
       } val,
       {(r) =>
@@ -281,16 +281,16 @@ class \nodoc\ iso _TestYourOwnUserSigningKeyComesBack is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/keys/device_signing/upload",
-          "{\"master_key\":{\"keys\":{\"ed25519:M\":\"m\"}},"
-            + "\"self_signing_key\":{\"keys\":{\"ed25519:S\":\"s\"}},"
-            + "\"user_signing_key\":{\"keys\":{\"ed25519:U\":\"u\"}}}",
+          "{\"master_key\":{\"keys\":{\"ed25519:M\":\"m\"}}," +
+            "\"self_signing_key\":{\"keys\":{\"ed25519:S\":\"s\"}}," +
+            "\"user_signing_key\":{\"keys\":{\"ed25519:U\":\"u\"}}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, first) =>
         _Post(
           "/_matrix/client/v3/keys/query",
-          "{\"device_keys\":{\"@" + _TestUser.localpart()
-            + ":example.test\":[]}}",
+          "{\"device_keys\":{\"@" + _TestUser.localpart() +
+            ":example.test\":[]}}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(r) =>

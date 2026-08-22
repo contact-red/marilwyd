@@ -181,10 +181,10 @@ primitive _AssertJSONKey
     """
     try
       let body = response.substring(response.find("\r\n\r\n")? + 4)
-      match JsonParser.parse(consume body)
-      | let o: JsonObject =>
+      match JSONParser.parse(consume body)
+      | let o: JSONObject =>
         h.assert_eq[String](expected, o(key)? as String)
-      | let e: JsonParseError =>
+      | let e: JSONParseError =>
         h.fail("body is not JSON: " + response)
       else
         h.fail("body is not a JSON object: " + response)
@@ -200,10 +200,10 @@ primitive _AssertErrcode
     """
     try
       let body = response.substring(response.find("\r\n\r\n")? + 4)
-      match JsonParser.parse(consume body)
-      | let o: JsonObject =>
+      match JSONParser.parse(consume body)
+      | let o: JSONObject =>
         h.assert_eq[String](expected, o("errcode")? as String)
-      | let e: JsonParseError =>
+      | let e: JSONParseError =>
         h.fail("body is not JSON: " + response)
       else
         h.fail("body is not a JSON object: " + response)

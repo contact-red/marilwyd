@@ -31,7 +31,7 @@ class val DeviceKeys
   One device's published identity keys, as the device published them.
 
   Text rather than a parsed object, for the reason `_EventContent` gives:
-  what is stored outlives the request that carried it, and a `JsonObject`
+  what is stored outlives the request that carried it, and a `JSONObject`
   built from the request body would pin the body, its connection and its
   handler for as long as anything held the keys.
   """
@@ -75,9 +75,9 @@ primitive _KeysBody
   fields rather than stored whole, and because it is allowed to be much
   larger than an event.
   """
-  fun apply(body: Array[U8] val): (JsonObject | MalformedKeys) =>
+  fun apply(body: Array[U8] val): (JSONObject | MalformedKeys) =>
     match _ObjectBody(body, MaxKeysBody())
-    | let o: JsonObject => o
+    | let o: JSONObject => o
     else
       MalformedKeys
     end
@@ -96,10 +96,10 @@ primitive _PrintedField
   this reads belongs to the parse of a request body, and printing is how a
   copy that outlives the request is made.
   """
-  fun apply(body: JsonObject, name: String): (String | None) =>
+  fun apply(body: JSONObject, name: String): (String | None) =>
     try
       match body(name)?
-      | let o: JsonObject => JsonPrinter.print(o)
+      | let o: JSONObject => JSONPrinter.print(o)
       else
         None
       end
@@ -116,16 +116,16 @@ primitive ReadOneTimeKeys
   exactly one key. Values that are not objects are dropped: a one-time key
   is a signed object, and there is nothing to store in anything else.
   """
-  fun apply(body: JsonObject, name: String)
+  fun apply(body: JSONObject, name: String)
     : Array[(String, String)] val
   =>
     let found = recover iso Array[(String, String)] end
     try
       match body(name)?
-      | let keys: JsonObject =>
+      | let keys: JSONObject =>
         for (id, value) in keys.pairs() do
           match value
-          | let o: JsonObject => found.push((id.clone(), JsonPrinter.print(o)))
+          | let o: JSONObject => found.push((id.clone(), JSONPrinter.print(o)))
           end
         end
       end
@@ -146,13 +146,13 @@ primitive MergeSignatures
   signer whose value is not an object — is dropped rather than refused, so
   that one unreadable entry cannot cost a client the rest of them.
   """
-  fun apply(stored: String, uploaded: JsonObject): String =>
+  fun apply(stored: String, uploaded: JSONObject): String =>
     """
     The stored object, with the upload's signatures added to its own.
     """
     let base =
-      match JsonParser.parse(stored)
-      | let o: JsonObject => o
+      match JSONParser.parse(stored)
+      | let o: JSONObject => o
       else
         return stored
       end
@@ -161,7 +161,7 @@ primitive MergeSignatures
 
     for (signer, entries) in _Nested(uploaded, "signatures").pairs() do
       match entries
-      | let by_key: JsonObject =>
+      | let by_key: JSONObject =>
         var into = _Nested(signatures, signer)
         for (key_id, signature) in by_key.pairs() do
           match signature
@@ -172,7 +172,7 @@ primitive MergeSignatures
       end
     end
 
-    JsonPrinter.print(base.update("signatures", signatures))
+    JSONPrinter.print(base.update("signatures", signatures))
 
 primitive _Nested
   """
@@ -181,13 +181,13 @@ primitive _Nested
   Absent, null and the wrong type all mean the same thing to everything
   that reads a key object: there is nothing to merge with.
   """
-  fun apply(body: JsonObject, name: String): JsonObject =>
+  fun apply(body: JSONObject, name: String): JSONObject =>
     try
       match body(name)?
-      | let o: JsonObject => o
+      | let o: JSONObject => o
       else
-        JsonObject
+        JSONObject
       end
     else
-      JsonObject
+      JSONObject
     end

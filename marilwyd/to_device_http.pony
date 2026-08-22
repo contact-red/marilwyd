@@ -45,7 +45,7 @@ actor _ClaimKeysHandler is
 
   be token_resolved(session: Session) =>
     match \exhaustive\ _KeysBody(_body)
-    | let asked: JsonObject =>
+    | let asked: JSONObject =>
       for (user_id, device_ids) in _ClaimedDevices(asked).pairs() do
         _wanted(user_id) = device_ids
       end
@@ -133,14 +133,14 @@ primitive _ClaimedDevices
   nothing whether or not this compared them, and comparing would only
   change an absent key into a differently absent key.
   """
-  fun apply(body: JsonObject): Map[String, Array[String] val] val =>
+  fun apply(body: JSONObject): Map[String, Array[String] val] val =>
     let wanted = recover iso Map[String, Array[String] val] end
     try
       match body("one_time_keys")?
-      | let accounts: JsonObject =>
+      | let accounts: JSONObject =>
         for (user_id, devices) in accounts.pairs() do
           match devices
-          | let named: JsonObject =>
+          | let named: JSONObject =>
             let ids = recover iso Array[String] end
             for device_id in named.keys() do
               ids.push(device_id.clone())
@@ -215,8 +215,8 @@ actor _SendToDeviceHandler is
     end
 
   fun ref _dispatch(session: Session, kind: String) =>
-    match JsonParser.parse(String.from_array(_body))
-    | let sent: JsonObject =>
+    match JSONParser.parse(String.from_array(_body))
+    | let sent: JSONObject =>
       _sender = session.user_id
       _kind = kind
       for (user_id, addressed) in _Addressed(sent).pairs() do
@@ -272,19 +272,19 @@ primitive _Addressed
   reason `_EventContent` gives: what is queued outlives the request that
   carried it.
   """
-  fun apply(body: JsonObject): Map[String, Array[(String, String)] val] val =>
+  fun apply(body: JSONObject): Map[String, Array[(String, String)] val] val =>
     let out = recover iso Map[String, Array[(String, String)] val] end
     try
       match body("messages")?
-      | let accounts: JsonObject =>
+      | let accounts: JSONObject =>
         for (user_id, devices) in accounts.pairs() do
           match devices
-          | let named: JsonObject =>
+          | let named: JSONObject =>
             let addressed = recover iso Array[(String, String)] end
             for (device_id, content) in named.pairs() do
               match content
-              | let o: JsonObject =>
-                addressed.push((device_id.clone(), JsonPrinter.print(o)))
+              | let o: JSONObject =>
+                addressed.push((device_id.clone(), JSONPrinter.print(o)))
               end
             end
             out(user_id.clone()) = consume addressed

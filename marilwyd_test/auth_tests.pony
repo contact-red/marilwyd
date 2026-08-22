@@ -216,11 +216,11 @@ primitive _EntryWith
     hash: String)
     : String
   =>
-    "  - localpart: \"" + localpart + "\"\n"
-      + "    algorithm: \"" + algorithm + "\"\n"
-      + "    iterations: " + iterations + "\n"
-      + "    salt: \"" + salt + "\"\n"
-      + "    hash: \"" + hash + "\"\n"
+    "  - localpart: \"" + localpart + "\"\n" +
+      "    algorithm: \"" + algorithm + "\"\n" +
+      "    iterations: " + iterations + "\n" +
+      "    salt: \"" + salt + "\"\n" +
+      "    hash: \"" + hash + "\"\n"
 
 primitive _Users
   """
@@ -282,8 +282,8 @@ class \nodoc\ iso _TestLoginIssuesAToken is UnitTest
         h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
         try
           let body = r.substring(r.find("\r\n\r\n")? + 4)
-          match JsonParser.parse(consume body)
-          | let o: JsonObject =>
+          match JSONParser.parse(consume body)
+          | let o: JSONObject =>
             h.assert_eq[String](
               "@alice:example.test", o("user_id")? as String)
             // 32 random bytes, hex encoded.
@@ -317,8 +317,8 @@ class \nodoc\ iso _TestUnknownUserIsIndistinguishable is UnitTest
 
   fun apply(h: TestHelper) =>
     let body =
-      "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\","
-        + "\"user\":\"nobody\"},\"password\":\"whatever\"}"
+      "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\"," +
+        "\"user\":\"nobody\"},\"password\":\"whatever\"}"
     _Serve(
       h,
       _Post("/_matrix/client/v3/login", body),
@@ -334,9 +334,9 @@ primitive _PasswordLogin
     localpart: String = _TestUser.localpart())
     : String
   =>
-    "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\","
-      + "\"user\":\"" + localpart + "\"},"
-      + "\"password\":\"" + password + "\"}"
+    "{\"type\":\"m.login.password\",\"identifier\":{\"type\":\"m.id.user\"," +
+      "\"user\":\"" + localpart + "\"}," +
+      "\"password\":\"" + password + "\"}"
 
 // ------------------------------------------- unimplemented matrix endpoints
 class \nodoc\ iso _TestUnimplementedRejectsStaleToken is UnitTest
@@ -422,12 +422,10 @@ class \nodoc\ iso _TestAnUpwardPathIsRefused is UnitTest
   A request that walks upward out of the asset root is refused, with no
   credential involved.
 
-  `hobby.ServeFiles` relies on `FilePath.from` to keep a request inside the
-  root, and in every released ponyc that containment check is a bare
-  string-prefix test: `Path.join` resolves the `..` first, so an asset root
-  of `/srv/element` accepts `/srv/element-config/x` because the one string
-  begins with the other. Any sibling whose name extends the root's is
-  readable by anyone who can reach the socket.
+  Everything under `--asset-root` is served unauthenticated, so the one
+  thing worth being certain of is that nothing outside it ever is.
+  `_ContainedPath` is what marilwyd asserts that with rather than
+  inheriting it, and this is what holds it to it.
   """
   fun name(): String => "auth/a path walking out of the root is refused"
 

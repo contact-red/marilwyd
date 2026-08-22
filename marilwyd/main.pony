@@ -165,9 +165,9 @@ actor Main is (hobby.ServerNotify & DeclaredChannelReceiver)
     the channel is missing rather than implying the process is going down.
     """
     _env.err.print(
-      "marilwyd: " + channel + " was not declared; its alias is already in"
-        + " use, so that channel is not bridged and the rest of this"
-        + " server is running without it")
+      "marilwyd: " + channel + " was not declared; its alias is already in" +
+        " use, so that channel is not bridged and the rest of this" +
+        " server is running without it")
     _env.exitcode(1)
 
   be listening(server: hobby.Server, host: String, service: String) =>

@@ -7,7 +7,7 @@ use "../marilwyd"
 use hobby = "hobby"
 use lori = "lori"
 
-actor Main is TestList
+actor \nodoc\ Main is TestList
   new create(env: Env) =>
     // Written once, here, rather than by each test that needs them.
     // PonyTest runs tests concurrently and they share these paths, so a
@@ -1010,8 +1010,8 @@ primitive _Get
   response without needing to parse Content-Length.
   """
   fun apply(path: String, headers: String = ""): String =>
-    "GET " + path + " HTTP/1.1\r\nHost: example.test\r\n" + headers
-      + "Connection: close\r\n\r\n"
+    "GET " + path + " HTTP/1.1\r\nHost: example.test\r\n" + headers +
+      "Connection: close\r\n\r\n"
 
 primitive _Send
   """
@@ -1028,11 +1028,11 @@ primitive _Send
     headers: String = "")
     : String
   =>
-    method + " " + path + " HTTP/1.1\r\nHost: example.test\r\n"
-      + headers
-      + "Content-Length: " + body.size().string() + "\r\n"
-      + "Content-Type: application/json\r\n"
-      + "Connection: close\r\n\r\n" + body
+    method + " " + path + " HTTP/1.1\r\nHost: example.test\r\n" +
+      headers +
+      "Content-Length: " + body.size().string() + "\r\n" +
+      "Content-Type: application/json\r\n" +
+      "Connection: close\r\n\r\n" + body
 
 primitive _Post
   fun apply(path: String, body: String, headers: String = ""): String =>
@@ -1077,19 +1077,19 @@ primitive _BridgesFixture
   fun path(): String => "build/test-bridges.yaml"
 
   fun body(): String =>
-    "networks:\n"
-      + "  - name: testnet\n"
-      + "    host: irc.example.test\n"
-      + "    port: 6697\n"
-      + "    tls: true\n"
-      + "    nicks:\n"
-      + "      - marilwyd\n"
-      + "    channels:\n"
-      + "      - channel: \"#norrath\"\n"
-      + "        room_name: \"norrath\"\n"
-      + "mapping:\n"
-      + "  to_irc: \"{localpart}[marilwyd]\"\n"
-      + "  to_matrix: \"irc_{network}_{nick}\"\n"
+    "networks:\n" +
+      "  - name: testnet\n" +
+      "    host: irc.example.test\n" +
+      "    port: 6697\n" +
+      "    tls: true\n" +
+      "    nicks:\n" +
+      "      - marilwyd\n" +
+      "    channels:\n" +
+      "      - channel: \"#norrath\"\n" +
+      "        room_name: \"norrath\"\n" +
+      "mapping:\n" +
+      "  to_irc: \"{localpart}[marilwyd]\"\n" +
+      "  to_matrix: \"irc_{network}_{nick}\"\n"
 
 primitive _WriteFixtures
   """
@@ -1109,9 +1109,9 @@ primitive _WriteFixtures
 
     try
       let body: String =
-        "users:\n"
-          + _entry(_TestUser.localpart(), _TestUser.password())?
-          + _entry(_OtherUser.localpart(), _OtherUser.password())?
+        "users:\n" +
+          _entry(_TestUser.localpart(), _TestUser.password())? +
+          _entry(_OtherUser.localpart(), _OtherUser.password())?
       let path = FilePath(auth, _CredentialsFixture.path())
       _write(path, body)
       // `_ReadCredentialsFile` refuses a file others can read.
@@ -1137,11 +1137,11 @@ primitive _WriteFixtures
     let salt = _Hex.bytes(Pbkdf2SaltLength())
     let hash =
       Pbkdf2Sha256(password, salt, _TestUser.iterations(), Pbkdf2KeyLength())?
-    "  - localpart: " + localpart + "\n"
-      + "    algorithm: pbkdf2-sha256\n"
-      + "    iterations: " + _TestUser.iterations().string() + "\n"
-      + "    salt: \"" + ToHexString(salt) + "\"\n"
-      + "    hash: \"" + ToHexString(hash) + "\"\n"
+    "  - localpart: " + localpart + "\n" +
+      "    algorithm: pbkdf2-sha256\n" +
+      "    iterations: " + _TestUser.iterations().string() + "\n" +
+      "    salt: \"" + ToHexString(salt) + "\"\n" +
+      "    hash: \"" + ToHexString(hash) + "\"\n"
 
   fun _write(path: FilePath, body: String) =>
     File(path) .> set_length(0) .> write(body) .> dispose()

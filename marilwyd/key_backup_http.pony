@@ -34,7 +34,7 @@ actor _CreateKeyBackupHandler is
 
   be token_resolved(session: Session) =>
     match \exhaustive\ _KeysBody(_body)
-    | let described: JsonObject =>
+    | let described: JSONObject =>
       match (_Algorithm(described), _PrintedField(described, "auth_data"))
       | (let algorithm: String, let auth_data: String) =>
         session.user.create_backup(KeyBackup(algorithm, auth_data), this)
@@ -71,7 +71,7 @@ primitive _Algorithm
   """
   The `algorithm` of a backup description, if it named one as text.
   """
-  fun apply(described: JsonObject): (String | None) =>
+  fun apply(described: JSONObject): (String | None) =>
     try
       match described("algorithm")?
       | let name: String => name.clone()

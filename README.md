@@ -99,17 +99,8 @@ bridging will be built natively instead. Federation, for now.
 
 Requires [corral](https://github.com/ponylang/corral) and a C SSL library
 (a transitive requirement of `ssl`, via `stallion`). Built and tested
-against ponyc 0.68.0.
-
-No version floor, because the one that would help does not exist yet.
-`ServeFiles` keeps requests inside `--asset-root` via `FilePath.from`,
-whose containment check in 0.68.0 is a bare string prefix: `Path.join`
-resolves the `..` first, so `/element/../<sibling>` escapes the root
-whenever a sibling directory's name extends its own. The fix is on ponyc's
-`main` and in no release. marilwyd therefore refuses upward paths itself —
-see `_ContainedPath` — and goes on refusing them once a fixed ponyc ships,
-because a server that reads files out of a directory should be able to say
-for itself that it does not leave one.
+against ponyc 0.69.1. Earlier releases will not build it: the standard
+library's JSON types were renamed in 0.69.0.
 
 ```shell
 corral fetch
@@ -344,8 +335,8 @@ Found while building this, and deliberately not worked around here:
 - **ponyc** — `cli` cannot report whether an option was supplied or defaulted,
   which is why `--bind-port` needs a sentinel to stay overridable; its
   environment-variable fallback cannot reach a kebab-case option name at all.
-  (`FilePath.from`'s containment check is fixed, after 0.68.0. Symlinks are
-  still followed, by design — see [SECURITY.md](SECURITY.md).)
+  (Symlinks under `--asset-root` are followed, by design — see
+  [SECURITY.md](SECURITY.md).)
 - **hobby** — a wildcard mount cannot answer its own mount point;
   `ServeFiles` requires the wildcard to be named `filepath` or it returns 500
   at request time; `listen_failed` reports one constant string for every bind

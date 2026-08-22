@@ -26,7 +26,7 @@ primitive ProfileFor
   no media repository to fetch from.
   """
   fun apply(displayname: String): String =>
-    "{\"displayname\":" + JsonPrinter.print(displayname) + "}"
+    "{\"displayname\":" + JSONPrinter.print(displayname) + "}"
 
 primitive DisplayName
   """

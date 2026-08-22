@@ -165,8 +165,8 @@ primitive ReadCredentials
     if users.size() == 0 then
       return StartupError(
         "credentials-empty",
-        path.path + " defines no users, so no one could"
-          + " ever log in")
+        path.path + " defines no users, so no one could" +
+          " ever log in")
     end
 
     Credentials._create(consume users)
@@ -236,9 +236,9 @@ primitive _Entry
     if entry.iterations < Pbkdf2MinIterations() then
       return StartupError(
         "credentials-iterations",
-        where' + ": iterations must be at least "
-          + Pbkdf2MinIterations().string() + ", not "
-          + entry.iterations.string())
+        where' + ": iterations must be at least " +
+          Pbkdf2MinIterations().string() + ", not " +
+          entry.iterations.string())
     end
 
     let salt =
@@ -252,8 +252,8 @@ primitive _Entry
     if salt.size() < Pbkdf2SaltLength() then
       return StartupError(
         "credentials-salt-length",
-        where' + ": salt must be at least " + Pbkdf2SaltLength().string()
-          + " bytes, not " + salt.size().string())
+        where' + ": salt must be at least " + Pbkdf2SaltLength().string() +
+          " bytes, not " + salt.size().string())
     end
 
     let hash =
@@ -271,9 +271,9 @@ primitive _Entry
     if hash.size() != Pbkdf2KeyLength() then
       return StartupError(
         "credentials-hash-length",
-        where' + ": hash must be exactly " + Pbkdf2KeyLength().string()
-          + " bytes, not " + hash.size().string()
-          + " — was it truncated?")
+        where' + ": hash must be exactly " + Pbkdf2KeyLength().string() +
+          " bytes, not " + hash.size().string() +
+          " — was it truncated?")
     end
 
     Credential(

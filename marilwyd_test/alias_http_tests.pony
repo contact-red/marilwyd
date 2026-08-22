@@ -89,8 +89,8 @@ class \nodoc\ iso _TestAPublishedRoomIsListed is UnitTest
       {(token) =>
         _Post(
           "/_matrix/client/v3/createRoom",
-          "{\"name\":\"Pony\",\"room_alias_name\":\"pony\""
-            + ",\"visibility\":\"public\"}",
+          "{\"name\":\"Pony\",\"room_alias_name\":\"pony\"" +
+            ",\"visibility\":\"public\"}",
           "Authorization: Bearer " + token + "\r\n")
       } val,
       {(token, login, created) =>

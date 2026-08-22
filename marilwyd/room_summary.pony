@@ -33,16 +33,16 @@ class val RoomSummary
     recover val
       let out = String(256)
       out.append("{\"room_id\":")
-      out.append(JsonPrinter.print(id))
+      out.append(JSONPrinter.print(id))
       match name
       | let n: String =>
         out.append(",\"name\":")
-        out.append(JsonPrinter.print(n))
+        out.append(JSONPrinter.print(n))
       end
       match alias
       | let a: String =>
         out.append(",\"canonical_alias\":")
-        out.append(JsonPrinter.print(a))
+        out.append(JSONPrinter.print(a))
       end
       out.append(",\"num_joined_members\":")
       out.append(members.string())
@@ -58,7 +58,7 @@ primitive _NameIn
   """
   Pull one string field out of a state event's stored content.
 
-  The content is text that was printed by `JsonPrinter`, so this parses
+  The content is text that was printed by `JSONPrinter`, so this parses
   what marilwyd itself wrote rather than anything a client sent directly.
   """
   fun apply(content: (String | None), field: String = "name")
@@ -66,8 +66,8 @@ primitive _NameIn
   =>
     match content
     | let text: String =>
-      match JsonParser.parse(text)
-      | let o: JsonObject =>
+      match JSONParser.parse(text)
+      | let o: JSONObject =>
         try
           match o(field)?
           | let found: String => return found.clone()

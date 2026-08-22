@@ -146,8 +146,8 @@ actor Room
     match _append(
       user_id,
       "m.room.join_rules",
-      "{\"join_rule\":\"" + (if wanted.open() then "public" else "invite" end)
-        + "\"}",
+      "{\"join_rule\":\"" + (if wanted.open() then "public" else "invite" end) +
+        "\"}",
       "")
     | None => return None
     end
@@ -209,9 +209,9 @@ actor Room
     member is let back in whatever the rule says, because they are already
     in — the rule governs arriving, not staying.
     """
-    if not (_state.is_member(user_id)
-      or _state.open()
-      or _state.is_invited(user_id))
+    if not (_state.is_member(user_id) or
+      _state.open() or
+      _state.is_invited(user_id))
     then
       receiver.membership_refused(NotInvited)
       return
@@ -337,8 +337,8 @@ actor Room
       _append(
         user_id,
         "m.room.member",
-        "{\"membership\":\"join\",\"displayname\":"
-          + _quoted(display) + "}",
+        "{\"membership\":\"join\",\"displayname\":" +
+          _quoted(display) + "}",
         user_id)
     end
 
@@ -634,7 +634,7 @@ actor Room
     A JSON string. Built here rather than by concatenation elsewhere so
     nothing assembles a document out of unescaped client text.
     """
-    JsonPrinter.print(text)
+    JSONPrinter.print(text)
 
 primitive _TooLongToRelay
   """

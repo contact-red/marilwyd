@@ -34,7 +34,7 @@ primitive KeysClaimed
           out.append(",")
         end
         first = false
-        out.append(JsonPrinter.print(user_id))
+        out.append(JSONPrinter.print(user_id))
         out.append(":{")
         var device_first = true
         for key in keys.values() do
@@ -42,9 +42,9 @@ primitive KeysClaimed
             out.append(",")
           end
           device_first = false
-          out.append(JsonPrinter.print(key.device_id))
+          out.append(JSONPrinter.print(key.device_id))
           out.append(":{")
-          out.append(JsonPrinter.print(key.key_id))
+          out.append(JSONPrinter.print(key.key_id))
           out.append(":")
           out.append(key.content)
           out.append("}")

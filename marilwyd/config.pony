@@ -92,22 +92,22 @@ primitive Configure
             "Serve Element and the Matrix Client-Server API.",
             [ OptionSpec.string(
                 "server-name",
-                "Matrix server name, hostname[:port]. Everything clients are"
-                  + " told about this server is derived from it.")
+                "Matrix server name, hostname[:port]. Everything clients are" +
+                  " told about this server is derived from it.")
               OptionSpec.string(
                 "asset-root",
-                "Directory holding the unpacked Element build. Every byte"
-                  + " under it is served unauthenticated.")
+                "Directory holding the unpacked Element build. Every byte" +
+                  " under it is served unauthenticated.")
               OptionSpec.string(
                 "credentials",
-                "JSON file of password hashes, one entry per local user."
-                  + " Generate entries with 'marilwyd hash-password'.")
+                "JSON file of password hashes, one entry per local user." +
+                  " Generate entries with 'marilwyd hash-password'.")
               OptionSpec.string(
                 "bridges",
-                "YAML file of IRC bridges. Each declares a channel, the"
-                  + " Matrix room it is, and how a name on one side is"
-                  + " spelled on the other. Omitted, marilwyd bridges"
-                  + " nothing."
+                "YAML file of IRC bridges. Each declares a channel, the" +
+                  " Matrix room it is, and how a name on one side is" +
+                  " spelled on the other. Omitted, marilwyd bridges" +
+                  " nothing."
                 where default' = "")
               OptionSpec.string(
                 "scheme",
@@ -119,13 +119,13 @@ primitive Configure
                 where default' = "127.0.0.1")
               OptionSpec.bool(
                 "log-requests",
-                "Print every request and response to stdout. For debugging;"
-                  + " logs the path and never the query string."
+                "Print every request and response to stdout. For debugging;" +
+                  " logs the path and never the query string."
                 where default' = false)
               OptionSpec.i64(
                 "bind-port",
-                "Port to listen on. Default: the port in --server-name, or"
-                  + " 8008 if it has none."
+                "Port to listen on. Default: the port in --server-name, or" +
+                  " 8008 if it has none."
                 where default' = -1)
             ])?
         let hash =
@@ -137,8 +137,8 @@ primitive Configure
         let s =
           CommandSpec.parent(
             "marilwyd",
-            "A very small Matrix homeserver that serves its own Element"
-              + " client.",
+            "A very small Matrix homeserver that serves its own Element" +
+              " client.",
             Array[OptionSpec],
             [ serve; hash ])?
         s .> add_help()?
@@ -158,9 +158,9 @@ primitive Configure
         // now required.
         return StartupError(
           "usage",
-          e.string() + "\nmarilwyd takes a subcommand: try 'marilwyd serve"
-            + " --server-name … --asset-root … --credentials …', 'marilwyd"
-            + " hash-password <localpart>', or 'marilwyd --help'.")
+          e.string() + "\nmarilwyd takes a subcommand: try 'marilwyd serve" +
+            " --server-name … --asset-root … --credentials …', 'marilwyd" +
+            " hash-password <localpart>', or 'marilwyd --help'.")
       end
 
     if cmd.spec().name() == "hash-password" then
@@ -249,9 +249,9 @@ primitive _ReadCredentialsFile
     if resolved.path.at(asset_root.path, 0) then
       return StartupError(
         "credentials-in-asset-root",
-        "--credentials " + resolved.path + " is inside --asset-root "
-          + asset_root.path + ", where every file is served to anyone who"
-          + " can reach this socket")
+        "--credentials " + resolved.path + " is inside --asset-root " +
+          asset_root.path + ", where every file is served to anyone who" +
+          " can reach this socket")
     end
 
     // The file is the offline-attack surface for every account.
@@ -260,8 +260,8 @@ primitive _ReadCredentialsFile
       if mode.group_read or mode.any_read then
         return StartupError(
           "credentials-permissions",
-          "--credentials " + resolved.path + " is readable by users other"
-            + " than its owner; chmod 600 it")
+          "--credentials " + resolved.path + " is readable by users other" +
+            " than its owner; chmod 600 it")
       end
     end
 
@@ -304,9 +304,9 @@ primitive _ReadBridgesFile
     if resolved.path.at(asset_root.path, 0) then
       return StartupError(
         "bridges-in-asset-root",
-        "--bridges " + resolved.path + " is inside --asset-root "
-          + asset_root.path + ", where every file is served to anyone who"
-          + " can reach this socket")
+        "--bridges " + resolved.path + " is inside --asset-root " +
+          asset_root.path + ", where every file is served to anyone who" +
+          " can reach this socket")
     end
 
     try
@@ -314,8 +314,8 @@ primitive _ReadBridgesFile
       if mode.group_read or mode.any_read then
         return StartupError(
           "bridges-permissions",
-          "--bridges " + resolved.path + " is readable by users other than"
-            + " its owner; chmod 600 it")
+          "--bridges " + resolved.path + " is readable by users other than" +
+            " its owner; chmod 600 it")
       end
     end
 
@@ -355,8 +355,8 @@ primitive _BindPort
       if n < 1024 then
         return StartupError(
           "bind-port",
-          "--server-name names port " + p + ", which needs privileges to"
-            + " bind. Pass --bind-port to say where to listen instead.")
+          "--server-name names port " + p + ", which needs privileges to" +
+            " bind. Pass --bind-port to say where to listen instead.")
       end
       p
     else
@@ -403,8 +403,8 @@ primitive _AssetRoot
     else
       return StartupError(
         "asset-root-no-index",
-        "--asset-root " + path + " has no index.html; is that an unpacked"
-          + " Element build?")
+        "--asset-root " + path + " has no index.html; is that an unpacked" +
+          " Element build?")
     end
 
     // Checked here, and never defaulted to `root`: the bundles mount carries
@@ -418,8 +418,8 @@ primitive _AssetRoot
       else
         return StartupError(
           "asset-root-no-bundles",
-          "--asset-root " + path + " has no bundles/ directory; is that an"
-            + " unpacked Element build?")
+          "--asset-root " + path + " has no bundles/ directory; is that an" +
+            " unpacked Element build?")
       end
 
     (root, bundles)

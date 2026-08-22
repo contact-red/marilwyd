@@ -44,7 +44,8 @@ primitive Routes
     let app = hobby.Application
 
     // Before anything else, including the logger: a path that walks
-    // upward is refused whatever it was aimed at.
+    // upward is refused whatever it was aimed at, so nothing outside
+    // `--asset-root` is ever reached by a handler.
     app.add_request_interceptor(_ContainedPath)
 
     match log

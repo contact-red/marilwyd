@@ -58,9 +58,9 @@ class val ToDeviceEvent
     recover val
       String(content.size() + 64)
         .> append("{\"sender\":")
-        .> append(JsonPrinter.print(sender))
+        .> append(JSONPrinter.print(sender))
         .> append(",\"type\":")
-        .> append(JsonPrinter.print(kind))
+        .> append(JSONPrinter.print(kind))
         .> append(",\"content\":")
         .> append(content)
         .> append("}")

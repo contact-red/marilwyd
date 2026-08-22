@@ -97,8 +97,8 @@ class \nodoc\ iso _TestAProfileIsAnswered is UnitTest
       {(token) =>
         _Send(
           "GET",
-          "/_matrix/client/v3/profile/%40" + _TestUser.localpart()
-            + "%3Aexample.test",
+          "/_matrix/client/v3/profile/%40" + _TestUser.localpart() +
+            "%3Aexample.test",
           "",
           "Authorization: Bearer " + token + "\r\n")
       } val,
