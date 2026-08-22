@@ -99,7 +99,8 @@ run: build/marilwyd build/element
 	  --server-name localhost:8008 \
 	  --asset-root build/element \
 	  --credentials $(CREDENTIALS) \
-		--bridges=bridges.yaml
+		--bridges=bridges.yaml \
+		--log-requests
 
 clean:
 	rm -rf build/marilwyd build/marilwyd_test build/marilwyd.o \
