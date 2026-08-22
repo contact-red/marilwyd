@@ -82,13 +82,11 @@ storming.
 
 | Method | Path | Cost of leaving it |
 |---|---|---|
-| GET | `capabilities` | Element assumes defaults |
-| GET | `voip/turnServer` | no calls |
-| GET | `thirdparty/protocols` | no bridge list in the UI |
+| GET | `voip/turnServer` | no TURN service |
 | POST | `register` | out of scope permanently |
 | GET | `unstable/org.matrix.msc2965/auth_metadata` | no OIDC, by choice |
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | no dehydration |
-| GET | `unstable/org.matrix.msc4143/rtc/transports` | no element call |
+| GET | `unstable/org.matrix.msc4143/rtc/transports` | no MatrixRTC service |
 
 `m.fully_read` is the one part of that group still dropped. It is a private
 per-room marker — the line Element draws for unread messages — and it needs

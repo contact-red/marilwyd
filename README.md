@@ -7,7 +7,7 @@ web client — one origin, one process.
 
 **Element signs in and reaches the app.** A local user logs in, the client
 settles into a real sync loop instead of retrying, finishes setting up
-encryption keys, and renders the room list. Thirty-five Matrix endpoints,
+encryption keys, and renders the room list. Thirty-seven Matrix endpoints,
 listed below.
 
 One account can be signed in from several clients at once — a browser, a
@@ -227,6 +227,7 @@ public.
 | GET | `/_matrix/client/v3/login` | the password flow |
 | POST | `/_matrix/client/v3/login` | verifies a password, issues a token |
 | GET | `/_matrix/client/v3/account/whoami` | the token's user and device |
+| GET | `/_matrix/client/v3/capabilities` | password changes are disabled |
 | POST | `/_matrix/client/v3/logout` | ends the calling session |
 | GET | `/_matrix/client/v3/devices` | the account's devices |
 | POST | `/_matrix/client/v3/delete_devices` | ends named sessions |
@@ -258,6 +259,7 @@ public.
 | GET | `/_matrix/client/v3/directory/room/:roomAlias` | an alias to a room id |
 | GET | `/_matrix/client/v3/publicRooms` | the public room directory |
 | POST | `/_matrix/client/v3/publicRooms` | the same, as a search sends it |
+| GET | `/_matrix/client/v3/thirdparty/protocols` | no lookup protocols |
 | GET, POST, PUT, DELETE | `/_matrix` | `M_UNRECOGNIZED` |
 | GET, POST, PUT, DELETE | `/_matrix/*` | `M_UNRECOGNIZED` |
 

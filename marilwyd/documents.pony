@@ -384,6 +384,29 @@ primitive PushRules
 
     JSONPrinter.print(JSONObject.update("global", kinds))
 
+primitive ServerCapabilities
+  """
+  `GET /_matrix/client/v3/capabilities`.
+
+  Passwords come from the credentials file, so a client cannot change one
+  through the Matrix API. Omitting this capability would make clients assume
+  that password changes are supported.
+  """
+  fun apply(): String =>
+    let change_password = JSONObject.update("enabled", false)
+    let capabilities =
+      JSONObject.update("m.change_password", change_password)
+    JSONPrinter.print(JSONObject.update("capabilities", capabilities))
+
+primitive ThirdPartyProtocols
+  """
+  `GET /_matrix/client/v3/thirdparty/protocols`.
+
+  An empty map because marilwyd provides no third-party lookup protocol.
+  Native IRC rooms remain discoverable through the public room directory.
+  """
+  fun apply(): String => JSONPrinter.print(JSONObject)
+
 primitive FilterCreated
   """
   The body of `POST /_matrix/client/v3/user/{userId}/filter`.

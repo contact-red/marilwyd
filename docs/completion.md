@@ -72,10 +72,10 @@ Paths are relative to `/_matrix/client/v3/` unless marked otherwise.
 | GET | `room_keys/version` | done |
 | POST | `room_keys/version` | done |
 | PUT | `user/{userId}/account_data/{type}` | done |
-| GET | `capabilities` | not started |
+| GET | `capabilities` | done |
 | GET | `profile/{userId}` | done |
 | GET | `voip/turnServer` | not started |
-| GET | `thirdparty/protocols` | not started |
+| GET | `thirdparty/protocols` | done |
 | POST | `register` | out of scope |
 | GET | `unstable/org.matrix.msc2965/auth_metadata` | not started |
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | not started |
@@ -101,6 +101,11 @@ client rather than a retry after failure, which is the same shape `txnId`
 exists to resolve and worth remembering when idempotency comes up. It is
 also the endpoint that showed the sync response is not optional: a client
 reads account data back from its local store, which only `/sync` fills.
+
+`capabilities` reports that password changes are disabled, matching the
+credentials-file account model. `thirdparty/protocols` returns an empty map:
+native IRC rooms are listed through `publicRooms`, not through Matrix's
+third-party lookup API.
 
 Everything not answered returns `M_UNRECOGNIZED` in JSON with a 404, on all
 four methods marilwyd routes, so none of it is a parse failure to a client —

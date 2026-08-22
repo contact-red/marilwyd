@@ -106,10 +106,97 @@ class \nodoc\ iso _TestUnrecognizedEndpointIsJSON is UnitTest
   fun apply(h: TestHelper) =>
     _Serve(
       h,
-      _Get("/_matrix/client/v3/capabilities"),
+      _Get(_UnimplementedPath()),
       {(r) =>
         h.assert_true(r.contains("HTTP/1.1 404 Not Found\r\n"), r)
         _AssertErrcode(h, r, "M_UNRECOGNIZED")
+      } val)
+
+class \nodoc\ iso _TestCapabilitiesRequiresAToken is UnitTest
+  fun name(): String => "capabilities/no token is M_MISSING_TOKEN"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/_matrix/client/v3/capabilities"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestCapabilitiesReportPasswordChangesDisabled is UnitTest
+  fun name(): String =>
+    "capabilities/a session is told password changes are disabled"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/capabilities",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        try
+          let body = r.substring(r.find("\r\n\r\n")? + 4)
+          match JSONParser.parse(consume body)
+          | let root: JSONObject =>
+            h.assert_eq[USize](1, root.size())
+            let capabilities = root("capabilities")? as JSONObject
+            h.assert_eq[USize](1, capabilities.size())
+            let change_password =
+              capabilities("m.change_password")? as JSONObject
+            h.assert_eq[USize](1, change_password.size())
+            h.assert_false(change_password("enabled")? as Bool)
+          | let e: JSONParseError =>
+            h.fail("body is not JSON: " + r)
+          else
+            h.fail("body is not a JSON object: " + r)
+          end
+        else
+          h.fail("capabilities body has the wrong shape: " + r)
+        end
+      } val)
+
+class \nodoc\ iso _TestThirdPartyProtocolsRequiresAToken is UnitTest
+  fun name(): String => "thirdparty protocols/no token is M_MISSING_TOKEN"
+
+  fun apply(h: TestHelper) =>
+    _Serve(
+      h,
+      _Get("/_matrix/client/v3/thirdparty/protocols"),
+      {(r) =>
+        h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)
+        _AssertErrcode(h, r, "M_MISSING_TOKEN")
+      } val)
+
+class \nodoc\ iso _TestThirdPartyProtocolsReportNone is UnitTest
+  fun name(): String => "thirdparty protocols/a session gets no protocols"
+
+  fun apply(h: TestHelper) =>
+    _ServeAuthed(
+      h,
+      {(token) =>
+        _Get(
+          "/_matrix/client/v3/thirdparty/protocols",
+          "Authorization: Bearer " + token + "\r\n")
+      } val,
+      {(r, held) =>
+        h.assert_true(r.contains("HTTP/1.1 200 OK\r\n"), r)
+        try
+          let body = r.substring(r.find("\r\n\r\n")? + 4)
+          match JSONParser.parse(consume body)
+          | let protocols: JSONObject =>
+            h.assert_eq[USize](0, protocols.size())
+          | let e: JSONParseError =>
+            h.fail("body is not JSON: " + r)
+          else
+            h.fail("body is not a JSON object: " + r)
+          end
+        else
+          h.fail("protocols body is missing: " + r)
+        end
       } val)
 
 class \nodoc\ iso _TestMatrixNamespaceRootIsJSON is UnitTest
@@ -184,6 +271,30 @@ primitive _AssertJSONKey
       match JSONParser.parse(consume body)
       | let o: JSONObject =>
         h.assert_eq[String](expected, o(key)? as String)
+      | let e: JSONParseError =>
+        h.fail("body is not JSON: " + response)
+      else
+        h.fail("body is not a JSON object: " + response)
+      end
+    else
+      h.fail("no body, or " + key + " missing: " + response)
+    end
+
+primitive _AssertJSONBool
+  fun apply(
+    h: TestHelper,
+    response: String,
+    key: String,
+    expected: Bool)
+  =>
+    """
+    Assert the response body parses as JSON and `key` holds `expected`.
+    """
+    try
+      let body = response.substring(response.find("\r\n\r\n")? + 4)
+      match JSONParser.parse(consume body)
+      | let o: JSONObject =>
+        h.assert_eq[Bool](expected, o(key)? as Bool)
       | let e: JSONParseError =>
         h.fail("body is not JSON: " + response)
       else

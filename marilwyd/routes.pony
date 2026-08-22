@@ -95,6 +95,9 @@ primitive Routes
       .> get(
         "/_matrix/client/v3/account/whoami",
         _Whoami(sessions))
+      .> get(
+        "/_matrix/client/v3/capabilities",
+        _AuthedJSON(sessions, ServerCapabilities()))
       .> post("/_matrix/client/v3/logout", _Logout(sessions))
       // The pair Element's session manager is built on. It has no call
       // site for the specification's single-device
@@ -116,6 +119,9 @@ primitive Routes
         _ResolveAlias(sessions, rooms, hs))
       .> get("/_matrix/client/v3/publicRooms", _PublicRooms(sessions, rooms))
       .> post("/_matrix/client/v3/publicRooms", _PublicRooms(sessions, rooms))
+      .> get(
+        "/_matrix/client/v3/thirdparty/protocols",
+        _AuthedJSON(sessions, ThirdPartyProtocols()))
       .> post(
         "/_matrix/client/v3/join/:roomIdOrAlias",
         _JoinRoom(sessions, rooms, links, hs))
