@@ -56,8 +56,14 @@ build/marilwyd_test: $(SOURCES) $(TEST_SOURCES)
 # hangs instead of failing — which this suite has already done once, and a
 # hung run reads as a passing one until somebody looks. CI would otherwise
 # sit until its own job timeout with no failing test to point at.
+#
+# `-k` is insurance and not the fix. This binary does stop on TERM — that
+# was measured, not assumed — so the deadline above is what makes a hang
+# visible and short. What KILL covers is a future test that blocks
+# somewhere TERM cannot reach it, which costs one word to guard against
+# and leaves a runner holding gigabytes if it is not.
 test: build/marilwyd_test
-	timeout 300 build/marilwyd_test
+	timeout -k 10 300 build/marilwyd_test
 
 # No ssl= needed: pony-lint reads the sources and does not link. It runs
 # through corral so it can resolve the dependency packages.
