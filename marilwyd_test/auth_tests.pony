@@ -422,12 +422,10 @@ class \nodoc\ iso _TestAnUpwardPathIsRefused is UnitTest
   A request that walks upward out of the asset root is refused, with no
   credential involved.
 
-  `hobby.ServeFiles` relies on `FilePath.from` to keep a request inside the
-  root, and in every released ponyc that containment check is a bare
-  string-prefix test: `Path.join` resolves the `..` first, so an asset root
-  of `/srv/element` accepts `/srv/element-config/x` because the one string
-  begins with the other. Any sibling whose name extends the root's is
-  readable by anyone who can reach the socket.
+  Everything under `--asset-root` is served unauthenticated, so the one
+  thing worth being certain of is that nothing outside it ever is.
+  `_ContainedPath` is what marilwyd asserts that with rather than
+  inheriting it, and this is what holds it to it.
   """
   fun name(): String => "auth/a path walking out of the root is refused"
 

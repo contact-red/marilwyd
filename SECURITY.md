@@ -8,31 +8,24 @@ path needs — it includes the element-call widget, a second bundled
 application, and source maps. Narrowing the served set is a future change, not
 a current guarantee.
 
-`_AssetRoot` canonicalises the root at startup, and `hobby.ServeFiles` resolves
-every request path through `FilePath.from`, which is meant to keep the result
-within that root.
+Requests are kept inside that root twice over. `_AssetRoot` canonicalises the
+root at startup and `hobby.ServeFiles` resolves every request path through
+`FilePath.from`, which contains the result; and `_ContainedPath` refuses any
+request whose path carries a `..` segment before routing, so a request that
+walks upward never reaches a handler at all.
 
-**It did not, up to ponyc 0.68.0.** `FilePath.from` joins the two paths —
-which resolves `..` — and then tested that the result begins with the root, as
-a string, with no separator boundary. An asset root of `/srv/element` therefore
-accepted `/srv/element-config/x`, because one string begins with the other. Any
-sibling directory whose name extends the root's was readable by anyone who
-could reach the socket, with no credential. ponyc 0.69.1 fixes it.
-
-`_ContainedPath` refuses any request whose path carries a `..` segment, before
-routing and before any handler exists. One interceptor rather than a check on
-each of the two asset mounts, so a third mount cannot be added without it. The
-comparison is on segments and not on characters: a file named `..config` is not
-a walk upward, and refusing it would be a bug of a quieter kind. Nothing between
-the socket and `FilePath.from` percent-decodes, so `%2e%2e` arrives as six
-characters naming a directory rather than as a parent reference.
-
-This stays. The source compiles on an older ponyc and nothing in the build
-refuses to, so without it, whether a given binary is safe would be a question
-about which compiler built it. The bug is also in a transitive property of a
+The second is deliberate belt and braces. Containment is a property of a
 dependency's dependency — marilwyd calls neither `ServeFiles` nor
-`FilePath.from` directly — which is the kind of thing that changes without
-anyone here noticing.
+`FilePath.from` itself — and a server that reads files out of a directory
+should be able to say for itself that it does not leave one. It is one
+interceptor rather than a check on each of the two asset mounts, so a third
+mount cannot be added without it.
+
+The comparison is on path segments and not on characters: a file named
+`..config` is not a walk upward, and refusing it would be a bug of a quieter
+kind. Nothing between the socket and `FilePath.from` percent-decodes, so
+`%2e%2e` arrives as six characters naming a directory rather than as a parent
+reference.
 
 ## Symlinks are followed
 
