@@ -341,12 +341,12 @@ primitive _PasswordLogin
 // ------------------------------------------- unimplemented matrix endpoints
 class \nodoc\ iso _TestUnimplementedRejectsStaleToken is UnitTest
   """
-  Element does not call whoami when it restores a session: it calls
-  endpoints like /capabilities and /keys/query. If those answered a flat
-  404, a client holding a token from before a restart would be told the
-  endpoint is missing and never that its session is gone — so it would keep
-  the token, keep showing a signed-in account, and wait for data that
-  cannot come.
+  Element does not call whoami when it restores a session: it goes straight
+  to whatever its startup path needs first. If an endpoint marilwyd does
+  not have answered a flat 404, a client holding a token from before a
+  restart would be told the endpoint is missing and never that its session
+  is gone — so it would keep the token, keep showing a signed-in account,
+  and wait for data that cannot come.
 
   The path has to be one marilwyd does not implement, or this stops
   testing `_Unrecognized` and starts testing whichever handler took it
@@ -360,7 +360,7 @@ class \nodoc\ iso _TestUnimplementedRejectsStaleToken is UnitTest
     _Serve(
       h,
       _Get(
-        "/_matrix/client/v3/capabilities",
+        _UnimplementedPath(),
         "Authorization: Bearer nosuchtoken\r\n"),
       {(r) =>
         h.assert_true(r.contains("HTTP/1.1 401 Unauthorized\r\n"), r)

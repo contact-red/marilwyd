@@ -170,6 +170,19 @@ primitive Routes
         "/_matrix/client/v3/user/:userId/filter/:filterId",
         _AuthedJSON(sessions, EmptyFilter()))
 
+      // What the server can be asked for, and two things it has none of:
+      // no application service to describe, and no relay to hand out. A
+      // client told so stops asking, and a client refused comes back.
+      .> get(
+        "/_matrix/client/v3/capabilities",
+        _AuthedJSON(sessions, Capabilities()))
+      .> get(
+        "/_matrix/client/v3/thirdparty/protocols",
+        _AuthedJSON(sessions, ThirdPartyProtocols()))
+      .> get(
+        "/_matrix/client/v3/voip/turnServer",
+        _AuthedJSON(sessions, TurnServers()))
+
       // Encryption. A client will not finish signing in without all four of
       // these: removing any one of them was measured to leave Element at
       // "Setting up keys" or "Unable to set up keys" rather than in the app.

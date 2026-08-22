@@ -50,8 +50,12 @@ seconds, against five syncs. An endpoint that answers syntactically is not
 the same as one that answers usefully, and the difference showed up as a
 request storm rather than as an error.
 
-The endpoints marilwyd still refuses retry **slowly**, roughly eight to ten
-seconds apart, and none of them stops the client working.
+The endpoints marilwyd still refuses are asked once each and not asked
+again — the two MSC probes and the Element Call transport list — and none of
+them stops the client working. The two that did come back are answered now:
+`thirdparty/protocols` was retried three times at ten-second intervals, and
+`capabilities` was re-polled every thirty seconds for as long as it
+failed.
 
 ## Observed: what Element requests today
 
@@ -72,18 +76,27 @@ Paths are relative to `/_matrix/client/v3/` unless marked otherwise.
 | GET | `room_keys/version` | done |
 | POST | `room_keys/version` | done |
 | PUT | `user/{userId}/account_data/{type}` | done |
-| GET | `capabilities` | not started |
+| GET | `capabilities` | done |
 | GET | `profile/{userId}` | done |
-| GET | `voip/turnServer` | not started |
-| GET | `thirdparty/protocols` | not started |
+| GET | `voip/turnServer` | done |
+| GET | `thirdparty/protocols` | done |
 | POST | `register` | out of scope |
 | GET | `unstable/org.matrix.msc2965/auth_metadata` | not started |
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | not started |
 | GET | `unstable/org.matrix.msc4143/rtc/transports` | not started |
 
 Nothing on that list blocks a session any more. Element signs in, finishes
-setting up keys and renders the app; what is left unanswered it retries
-slowly or does without.
+setting up keys and renders the app; what is left unanswered it does
+without.
+
+`capabilities` is the row that cost the most while it was missing, and not
+for what it says. matrix-js-sdk runs it through a poller that re-polls
+thirty seconds after any failure and refreshes six hours after a document it
+can read, so refusing it bought a request every half minute for the life of
+the session. What it says matters to a person rather than to the sync loop:
+Element renders the change-password, display-name, avatar and
+third-party-identifier controls unless a capability says otherwise, and
+marilwyd has no endpoint behind any of the four.
 
 The five encryption rows were one gate rather than five items, and each was
 verified by removing it and driving the client again. Dropping

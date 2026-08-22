@@ -6,12 +6,12 @@ class val _Unrecognized
   The answer for any `/_matrix/` path marilwyd does not implement.
 
   A request carrying a token gets that token checked first. Element does not
-  call `whoami` when it restores a session — it goes straight to endpoints
-  like `/capabilities`, `/keys/query` and `/profile`, which marilwyd does not
-  implement. If those answered a flat 404, a client holding a token from
-  before a restart would be told "no such endpoint" and never "your session
-  is gone", so it would keep the stale token, keep showing a signed-in
-  account, and wait for data that cannot arrive.
+  call `whoami` when it restores a session — it goes straight to whatever
+  its startup path needs, and some of that marilwyd does not implement. If
+  an endpoint it does not have answered a flat 404, a client holding a token
+  from before a restart would be told "no such endpoint" and never "your
+  session is gone", so it would keep the stale token, keep showing a
+  signed-in account, and wait for data that cannot arrive.
 
   Checking the token here means the client learns the truth from whichever
   endpoint it happens to reach first.

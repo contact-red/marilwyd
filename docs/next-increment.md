@@ -77,18 +77,27 @@ to go before it needs a field.
 
 ### Endpoints Element asks for and does not get
 
-All answer `M_UNRECOGNIZED` in JSON, and all are retried slowly rather than
-storming.
+All answer `M_UNRECOGNIZED` in JSON, each is asked once, and none is asked
+again.
 
 | Method | Path | Cost of leaving it |
 |---|---|---|
-| GET | `capabilities` | Element assumes defaults |
-| GET | `voip/turnServer` | no calls |
-| GET | `thirdparty/protocols` | no bridge list in the UI |
 | POST | `register` | out of scope permanently |
 | GET | `unstable/org.matrix.msc2965/auth_metadata` | no OIDC, by choice |
 | GET | `unstable/org.matrix.msc3814.v1/dehydrated_device` | no dehydration |
 | GET | `unstable/org.matrix.msc4143/rtc/transports` | no element call |
+
+`M_UNRECOGNIZED` is the whole answer for the dehydrated device rather than a
+placeholder for one. The client branches on the errcode: `M_UNRECOGNIZED`
+means the server does not do dehydration, `M_NOT_FOUND` means it does and
+holds none, and anything else is rethrown. `UnrecognizedRequest` therefore
+tells it the truth, and implementing the endpoint to say the same thing
+would gain nothing.
+
+`capabilities`, `voip/turnServer` and `thirdparty/protocols` were on this
+list and are answered now — the first because a refusal cost a request every
+thirty seconds for the life of a session, the other two because an empty
+document ends the asking where a refusal does not.
 
 `m.fully_read` is the one part of that group still dropped. It is a private
 per-room marker — the line Element draws for unread messages — and it needs
@@ -123,6 +132,14 @@ in the same request is kept, which is what stopped the retry loop.
 - **A client reads account data back from its local store, which only
   `/sync` fills.** `PUT` and `GET` on `account_data` alone would let a
   client save settings it could never read.
+- **A refused endpoint is not always retried at one rate, and the rate is in
+  the bundle.** matrix-js-sdk's capability poller re-polls thirty seconds
+  after a failure and six hours after a success; the PSTN check behind
+  `thirdparty/protocols` retries twice at ten-second intervals and then
+  assumes no support; the TURN check runs on a ten-minute interval and stops
+  for good on a 403. Reading the call site in
+  `build/element/bundles/` answered all three in minutes, and the request log
+  alone would have suggested one shared cadence.
 
 ## How to re-run the probe
 

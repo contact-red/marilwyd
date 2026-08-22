@@ -398,7 +398,7 @@ class \nodoc\ iso _TestFilterFetchServesAnEmptyFilter is UnitTest
 
 class \nodoc\ iso _TestAuthedJSONRejectsAnUnknownToken is UnitTest
   """
-  `_AuthedJSON` serves three routes and its stale-token branch was reachable
+  Every route `_AuthedJSON` serves shares this branch, and it was reachable
   from none of them.
   """
   fun name(): String => "pushrules/an unknown token is M_UNKNOWN_TOKEN"
